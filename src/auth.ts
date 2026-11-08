@@ -52,7 +52,7 @@ export type AuthResult = { ok: true; email: string } | { ok: false; status: numb
 export async function authenticate(env: Env, req: Request): Promise<AuthResult> {
   if (env.DEV_NO_AUTH === "1") return { ok: true, email: "dev@local" };
 
-  const allowed = env.ALLOWED_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const allowed = (env.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
   if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD || !allowed.length) {
     return { ok: false, status: 503, message: "Вхід ще не налаштований (Cloudflare Access). Див. README." };
   }

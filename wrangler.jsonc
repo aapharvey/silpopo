@@ -31,21 +31,20 @@
     ]
   },
 
+  // Не видаляти змінні, задані в панелі Cloudflare (ALLOWED_EMAILS, ACCESS_TEAM_DOMAIN, ACCESS_AUD), при кожному деплої.
+  "keep_vars": true,
+
   "vars": {
     // mock — тестові дані без підключення до Сільпо; mcp — офіційний MCP Сільпо.
     "SILPO_MODE": "mock",
     "SILPO_MCP_URL": "https://mcp.silpo.ua/mcp",
     "TIMEZONE": "Europe/Kyiv",
     "DIGEST_HOUR": "8",
-    // Кома-розділений список email, яким дозволено вхід (перевіряється разом з Cloudflare Access).
-    "ALLOWED_EMAILS": "",
-    // Cloudflare Access (Zero Trust → Access → Applications): домен команди і AUD-тег застосунку.
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": "",
     // Скільки товарів перевіряти за один запуск збирача (ліміт 50 підзапитів на безкоштовному тарифі).
     "COLLECT_BATCH": "12"
   }
 
-  // Секрети (НЕ в цьому файлі, а через `wrangler secret put`):
-  //   TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET
+  // Задаються в панелі Cloudflare (Worker → Settings → Variables and Secrets), НЕ в цьому файлі:
+  //   змінні:  ALLOWED_EMAILS (email через кому), ACCESS_TEAM_DOMAIN, ACCESS_AUD
+  //   секрети: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET
 }

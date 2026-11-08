@@ -6,7 +6,7 @@ export interface Env {
   SILPO_MCP_URL: string;
   TIMEZONE: string;
   DIGEST_HOUR: string;
-  ALLOWED_EMAILS: string;
+  ALLOWED_EMAILS?: string;
   COLLECT_BATCH: string;
   // Cloudflare Access: домен команди (xxx.cloudflareaccess.com) і Application Audience (AUD) tag
   ACCESS_TEAM_DOMAIN?: string;
