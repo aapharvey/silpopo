@@ -1,0 +1,51 @@
+{
+  // Cloudflare Worker: веб-застосунок + API + Telegram-бот + збирач цін.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "silpopo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+
+  // Статичний веб-інтерфейс (public/). Запити до /api/* і /telegram/* ідуть у Worker.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/telegram/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "silpopo",
+      // Заповнюється після `wrangler d1 create silpopo` (див. README).
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Безкоштовний тариф: до 5 cron-тригерів на акаунт. Тут два.
+  "triggers": {
+    "crons": [
+      "*/15 * * * *", // збирач цін: маленька порція товарів кожні 15 хв
+      "5 * * * *"     // щогодини: перевірка, чи настав час ранкового дайджесту (Київ)
+    ]
+  },
+
+  "vars": {
+    // mock — тестові дані без підключення до Сільпо; mcp — офіційний MCP Сільпо.
+    "SILPO_MODE": "mock",
+    "SILPO_MCP_URL": "https://mcp.silpo.ua/mcp",
+    "TIMEZONE": "Europe/Kyiv",
+    "DIGEST_HOUR": "8",
+    // Кома-розділений список email, яким дозволено вхід (перевіряється разом з Cloudflare Access).
+    "ALLOWED_EMAILS": "",
+    // Cloudflare Access (Zero Trust → Access → Applications): домен команди і AUD-тег застосунку.
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+    // Скільки товарів перевіряти за один запуск збирача (ліміт 50 підзапитів на безкоштовному тарифі).
+    "COLLECT_BATCH": "12"
+  }
+
+  // Секрети (НЕ в цьому файлі, а через `wrangler secret put`):
+  //   TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET
+}

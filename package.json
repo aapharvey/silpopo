@@ -1,0 +1,28 @@
+{
+  "name": "silpopo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Списки покупок для Сільпо з моніторингом цін і акцій та Telegram-сповіщеннями",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply silpopo --local",
+    "db:migrate:remote": "wrangler d1 migrations apply silpopo --remote",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aapharvey/silpopo.git"
+  },
+  "dependencies": {
+    "hono": "^4.13.17"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261108.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.158.0"
+  }
+}
