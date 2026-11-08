@@ -75,7 +75,13 @@ async function renderLists() {
   drawLists();
 }
 
+/** Невідмічені — зверху (у своєму порядку), відмічені (куплені) — опускаються вниз. */
+function sortItems(items) {
+  return [...items.filter((i) => !i.checked), ...items.filter((i) => i.checked)];
+}
+
 function drawLists() {
+  state.items = sortItems(state.items);
   const banner =
     state.me && !state.me.stores
       ? `<div class="banner">Спершу виберіть магазин у <a href="#/settings">налаштуваннях</a> — без нього ціни не збираються.</div>`

@@ -82,7 +82,7 @@ export async function buildItems(env: Env, opts: { listId?: number; itemId?: num
     sql += " WHERE list_id = ?1";
     binds.push(opts.listId);
   }
-  sql += " ORDER BY checked, id";
+  sql += " ORDER BY checked, id DESC"; // нові зверху, куплені — внизу
   const items = (await db.prepare(sql).bind(...binds).all<ItemRow>()).results;
   if (!items.length) return [];
 
