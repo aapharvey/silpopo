@@ -17,8 +17,8 @@
     {
       "binding": "DB",
       "database_name": "silpopo",
-      // Заповнюється після `wrangler d1 create silpopo` (див. README).
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // База silpopo в акаунті Cloudflare.
+      "database_id": "4cff1bc6-bcb3-4dd4-8405-a83e2c9d21f9",
       "migrations_dir": "migrations"
     }
   ],
