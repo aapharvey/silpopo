@@ -51,6 +51,9 @@ export type AuthResult = { ok: true; email: string } | { ok: false; status: numb
 
 export async function authenticate(env: Env, req: Request): Promise<AuthResult> {
   if (env.DEV_NO_AUTH === "1") return { ok: true, email: "dev@local" };
+  // Тимчасовий відкритий режим (без входу) — дозволений лише на тестових даних.
+  // Щойно застосунок підключено до акаунта Сільпо (SILPO_MODE=mcp), вхід обов'язковий.
+  if (env.AUTH_MODE === "open" && env.SILPO_MODE !== "mcp") return { ok: true, email: "без входу" };
 
   const allowed = (env.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
   if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD || !allowed.length) {

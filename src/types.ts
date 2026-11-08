@@ -11,6 +11,8 @@ export interface Env {
   // Cloudflare Access: домен команди (xxx.cloudflareaccess.com) і Application Audience (AUD) tag
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
+  // 'open' — без входу (лише в режимі mock); 'access' — Cloudflare Access
+  AUTH_MODE?: "open" | "access";
 
   // Секрети
   TELEGRAM_BOT_TOKEN?: string;

@@ -37,6 +37,8 @@
   "vars": {
     // mock — тестові дані без підключення до Сільпо; mcp — офіційний MCP Сільпо.
     "SILPO_MODE": "mock",
+    // Тимчасово без входу. Перед підключенням до акаунта Сільпо — "access" (у режимі mcp відкритий вхід ігнорується).
+    "AUTH_MODE": "open",
     "SILPO_MCP_URL": "https://mcp.silpo.ua/mcp",
     "TIMEZONE": "Europe/Kyiv",
     "DIGEST_HOUR": "8",
