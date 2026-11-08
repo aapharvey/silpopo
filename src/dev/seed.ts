@@ -8,26 +8,36 @@ import { todayIn } from "../util/time";
  * Демо-дані для режиму mock: 2 магазини + доставка, кілька позицій у списку
  * і 60 днів "історії цін", щоб одразу було видно графіки, поради та дайджест.
  */
-export async function seedDemo(env: Env) {
+const PER_STEP = 3; // товарів історії за один запит — щоб вкластися в 10 мс CPU безкоштовного тарифу
+export const SEED_STEPS = Math.ceil(MOCK_CATALOG.length / PER_STEP) + 1;
+
+/** Виконується кроками (step = 0..SEED_STEPS-1): спершу історія цін порціями, наприкінці — магазини та список. */
+export async function seedDemo(env: Env, step = 0): Promise<{ done: boolean; next: number | null; steps: number }> {
   const db = env.DB;
   const src = new MockSilpoSource(env.TIMEZONE);
   const stores = (await src.listStores()).filter((s) => s.id !== "mock-store-3");
-  await db.batch(
-    stores.map((s) =>
-      db.prepare("INSERT INTO stores (id, name, kind, active) VALUES (?1, ?2, ?3, 1) ON CONFLICT(id) DO UPDATE SET active = 1").bind(s.id, s.name, s.kind),
-    ),
-  );
-
   const today = todayIn(env.TIMEZONE);
-  // Історія: для всіх товарів каталогу, по днях, пачками (ліміт розміру batch).
-  const stmts: D1PreparedStatement[] = [];
-  for (const p of MOCK_CATALOG) {
-    stmts.push(upsertProductStmt(db, mockOfferFor(p, stores[0]!.id, today)));
-    for (const s of stores) for (let d = 60; d >= 1; d--) stmts.push(snapshotStmt(db, mockOfferFor(p, s.id, addDays(today, -d)), addDays(today, -d)));
-  }
-  for (let i = 0; i < stmts.length; i += 400) await db.batch(stmts.slice(i, i + 400));
 
-  // Сьогоднішні ціни
+  if (step === 0) {
+    await db.batch(
+      stores.map((s) =>
+        db.prepare("INSERT INTO stores (id, name, kind, active) VALUES (?1, ?2, ?3, 1) ON CONFLICT(id) DO UPDATE SET active = 1").bind(s.id, s.name, s.kind),
+      ),
+    );
+  }
+
+  const historySteps = SEED_STEPS - 1;
+  if (step < historySteps) {
+    const stmts: D1PreparedStatement[] = [];
+    for (const p of MOCK_CATALOG.slice(step * PER_STEP, (step + 1) * PER_STEP)) {
+      stmts.push(upsertProductStmt(db, mockOfferFor(p, stores[0]!.id, today)));
+      for (const s of stores) for (let d = 60; d >= 1; d--) stmts.push(snapshotStmt(db, mockOfferFor(p, s.id, addDays(today, -d)), addDays(today, -d)));
+    }
+    await db.batch(stmts);
+    return { done: false, next: step + 1, steps: SEED_STEPS };
+  }
+
+  // Останній крок: сьогоднішні ціни, позиції списку, кандидати.
   for (const s of stores) await saveOffers(db, await src.getOffers(MOCK_CATALOG.map((p) => p.id), s.id), today);
 
   const listId = await defaultListId(env);
@@ -52,5 +62,5 @@ export async function seedDemo(env: Env) {
     }
     if (cand.length) await db.batch(cand);
   }
-  return { ok: true, snapshots: stmts.length };
+  return { done: true, next: null, steps: SEED_STEPS };
 }

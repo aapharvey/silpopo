@@ -448,8 +448,14 @@ document.addEventListener("click", async (e) => {
       toast(`Перевірено ${r.checked} цін`);
       await refreshMe();
     } else if (el("[data-seed]")) {
-      el("[data-seed]").disabled = true;
-      await api("/dev/seed", { method: "POST" });
+      const btn = el("[data-seed]");
+      btn.disabled = true;
+      // Заповнення кроками, щоб кожен запит вкладався в ліміти безкоштовного Cloudflare.
+      for (let step = 0; step != null; ) {
+        const r = await api(`/dev/seed?step=${step}`, { method: "POST" });
+        btn.textContent = `Заповнюю… ${Math.round(((r.next ?? r.steps) / r.steps) * 100)}%`;
+        step = r.next;
+      }
       await refreshMe();
       toast("Демо-дані додано");
       location.hash = "#/";

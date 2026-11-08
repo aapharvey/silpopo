@@ -240,5 +240,5 @@ api.get("/silpo/tools", async (c) => {
 
 api.post("/dev/seed", async (c) => {
   if (c.env.SILPO_MODE !== "mock") return c.json({ error: "Лише в режимі mock" }, 400);
-  return c.json(await seedDemo(c.env));
+  return c.json(await seedDemo(c.env, Number(c.req.query("step") ?? 0) || 0));
 });
