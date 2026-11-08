@@ -341,6 +341,7 @@ async function renderSettings() {
       }
       ${me.telegramConfigured ? `<button class="btn ghost small" data-tgwebhook>Зареєструвати вебхук бота</button>` : ""}
       <div id="tglink"></div>
+      <div id="tgstatus" class="small muted"></div>
     </div>
 
     <h2>Обслуговування</h2>
@@ -352,6 +353,7 @@ async function renderSettings() {
       ${me.mode === "mock" ? `<button class="btn ghost" data-seed>Заповнити демо-даними</button>` : ""}
     </div>
   `;
+  if (me.telegramConfigured) loadTgStatus();
   let t;
   $("#storeq").oninput = (e) => {
     clearTimeout(t);
@@ -364,6 +366,24 @@ async function renderSettings() {
       }
     }, 300);
   };
+}
+
+async function loadTgStatus() {
+  const box = $("#tgstatus");
+  if (!box) return;
+  try {
+    const s = await api("/telegram/status");
+    const lines = [`Бот: @${esc(s.bot)}`];
+    if (!s.secret) lines.push("⚠️ Немає секрету TELEGRAM_WEBHOOK_SECRET");
+    if (!s.webhookUrl) lines.push("⚠️ Вебхук не зареєстрований — натисніть «Зареєструвати вебхук бота»");
+    else if (s.webhookUrl !== s.expectedUrl) lines.push(`⚠️ Вебхук вказує на іншу адресу: ${esc(s.webhookUrl)}`);
+    else lines.push("✅ Вебхук зареєстрований");
+    if (s.pending) lines.push(`Повідомлень у черзі: ${s.pending}`);
+    if (s.lastError) lines.push(`⚠️ Остання помилка Telegram: ${esc(s.lastError)} (${esc(localTime(s.lastErrorAt.slice(0, 19).replace("T", " ")))})`);
+    box.innerHTML = lines.join("<br>");
+  } catch (e) {
+    box.textContent = `Не вдалося перевірити бота: ${e.message}`;
+  }
 }
 
 /* ───────── Делегування подій ───────── */
@@ -439,7 +459,8 @@ document.addEventListener("click", async (e) => {
       $("#tglink").innerHTML = `<a class="btn" href="${esc(r.link)}" target="_blank" rel="noopener">Відкрити бота в Telegram</a><div class="muted small" style="margin-top:6px">Натисніть «Start» у боті. Посилання діє 1 годину.</div>`;
     } else if (el("[data-tgwebhook]")) {
       const r = await api("/telegram/webhook", { method: "POST" });
-      toast(`Вебхук: ${r.url}`);
+      toast(`Вебхук зареєстровано: ${r.url}`);
+      loadTgStatus();
     } else if (el("[data-tgtest]")) {
       const r = await api("/telegram/test", { method: "POST" });
       toast(r.result === "sent" ? "Дайджест надіслано" : r.result === "nothing" ? "Вигідного зараз немає — надіслала про це повідомлення" : "Чат не підключено");

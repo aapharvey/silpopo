@@ -221,10 +221,34 @@ api.post("/telegram/link", async (c) => {
 /** Реєструє вебхук бота на поточну адресу застосунку — щоб не робити це вручну. */
 api.post("/telegram/webhook", async (c) => {
   if (!c.env.TELEGRAM_BOT_TOKEN || !c.env.TELEGRAM_WEBHOOK_SECRET) return c.json({ error: "Потрібні секрети TELEGRAM_BOT_TOKEN і TELEGRAM_WEBHOOK_SECRET" }, 400);
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(c.env.TELEGRAM_WEBHOOK_SECRET))
+    return c.json({ error: "TELEGRAM_WEBHOOK_SECRET може містити лише латинські літери, цифри, _ та -" }, 400);
   const url = `${new URL(c.req.url).origin}/telegram/webhook`;
   await tg(c.env, "setWebhook", { url, secret_token: c.env.TELEGRAM_WEBHOOK_SECRET, allowed_updates: ["message", "callback_query"] });
   await tg(c.env, "setMyCommands", { commands: [{ command: "digest", description: "Що вигідно зараз" }, { command: "help", description: "Як додавати товари" }] });
   return c.json({ ok: true, url });
+});
+
+/** Діагностика бота: чи зареєстрований вебхук і яку помилку останньою бачив Telegram. */
+api.get("/telegram/status", async (c) => {
+  if (!c.env.TELEGRAM_BOT_TOKEN) return c.json({ configured: false, secret: !!c.env.TELEGRAM_WEBHOOK_SECRET });
+  const info = (await tg(c.env, "getWebhookInfo", {})) as {
+    url: string;
+    pending_update_count: number;
+    last_error_date?: number;
+    last_error_message?: string;
+  };
+  const me = (await tg(c.env, "getMe", {})) as { username: string };
+  return c.json({
+    configured: true,
+    secret: !!c.env.TELEGRAM_WEBHOOK_SECRET,
+    bot: me.username,
+    webhookUrl: info.url || null,
+    expectedUrl: `${new URL(c.req.url).origin}/telegram/webhook`,
+    pending: info.pending_update_count,
+    lastError: info.last_error_message ?? null,
+    lastErrorAt: info.last_error_date ? new Date(info.last_error_date * 1000).toISOString() : null,
+  });
 });
 
 api.post("/telegram/test", async (c) => c.json({ result: await sendDigest(c.env, { force: true, appUrl: new URL(c.req.url).origin }) }));
