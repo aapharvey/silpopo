@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "./types";
-import { authenticate } from "./auth";
+import { AUTH_COOKIE, authCookieValue, authenticate, checkPassword } from "./auth";
+import { authStatus, disconnect as silpoDisconnect, startAuth } from "./silpo/oauth";
 import { getHistory, getSetting, saveOffers, setSetting } from "./db";
 import { buildItems, summarizeDeals } from "./deals";
 import { silpoSource } from "./silpo";
@@ -19,9 +20,21 @@ api.onError((err, c) => {
   return c.json({ error: err.message }, 500);
 });
 
+/** Вхід за паролем (до перевірки авторизації). */
+api.post("/login", async (c) => {
+  const { password } = await c.req.json<{ password?: string }>().catch(() => ({ password: "" }));
+  // невелика затримка ускладнює підбір пароля
+  await new Promise((r) => setTimeout(r, 400));
+  if (!password || !(await checkPassword(c.env, password))) return c.json({ error: "Невірний пароль" }, 401);
+  const value = await authCookieValue(c.env.APP_PASSWORD!);
+  c.header("set-cookie", `${AUTH_COOKIE}=${value}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`);
+  return c.json({ ok: true });
+});
+
 api.use("*", async (c, next) => {
+  if (c.req.path === "/api/login") return next();
   const r = await authenticate(c.env, c.req.raw);
-  if (!r.ok) return c.json({ error: r.message }, r.status as 401);
+  if (!r.ok) return c.json({ error: r.message, login: r.login ?? false }, r.status as 401);
   c.set("email", r.email);
   await next();
 });
@@ -49,6 +62,7 @@ api.get("/me", async (c) => {
     mode: c.env.SILPO_MODE,
     telegramLinked: !!chat,
     telegramConfigured: !!c.env.TELEGRAM_BOT_TOKEN,
+    silpoConnected: c.env.SILPO_MODE === "mcp" ? !!(await db.prepare("SELECT 1 FROM oauth_tokens WHERE provider = 'silpo'").first()) : true,
     stores: stores?.n ?? 0,
     lastCheck: lastCheck?.t ?? null,
     today: todayIn(c.env.TIMEZONE),
@@ -256,6 +270,20 @@ api.post("/telegram/test", async (c) => c.json({ result: await sendDigest(c.env,
 /* ───── Обслуговування ───── */
 
 api.post("/collect", async (c) => c.json(await collect(c.env, silpoSource(c.env))));
+
+/* ───── Підключення акаунта Сільпо ───── */
+
+api.get("/silpo/status", async (c) => c.json({ mode: c.env.SILPO_MODE, ...(await authStatus(c.env)) }));
+
+api.post("/silpo/connect", async (c) => {
+  if (c.env.SILPO_MODE !== "mcp") return c.json({ error: "Застосунок працює на тестових даних" }, 400);
+  return c.json({ url: await startAuth(c.env, new URL(c.req.url).origin) });
+});
+
+api.post("/silpo/disconnect", async (c) => {
+  await silpoDisconnect(c.env);
+  return c.json({ ok: true });
+});
 
 api.get("/silpo/tools", async (c) => {
   if (c.env.SILPO_MODE !== "mcp") return c.json({ error: "Доступно лише в режимі mcp" }, 400);

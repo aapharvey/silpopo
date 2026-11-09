@@ -17,7 +17,12 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? `Помилка ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error ?? `Помилка ${res.status}`);
+    err.status = res.status;
+    err.login = !!data.login;
+    throw err;
+  }
   return data;
 }
 
@@ -83,9 +88,11 @@ function sortItems(items) {
 function drawLists() {
   state.items = sortItems(state.items);
   const banner =
-    state.me && !state.me.stores
-      ? `<div class="banner">Спершу виберіть магазин у <a href="#/settings">налаштуваннях</a> — без нього ціни не збираються.</div>`
-      : "";
+    state.me && !state.me.silpoConnected
+      ? `<div class="banner">Підключіть свій акаунт Сільпо в <a href="#/settings">налаштуваннях</a>, щоб бачити справжні ціни й акції.</div>`
+      : state.me && !state.me.stores
+        ? `<div class="banner">Спершу виберіть магазини в <a href="#/settings">налаштуваннях</a> — без них ціни не збираються.</div>`
+        : "";
   view.innerHTML = `
     ${banner}
     <div class="listbar">
@@ -209,6 +216,7 @@ function openItem(id) {
              )
              .join("") || `<div class="muted small">Ціни ще збираються.</div>`}</div>
            ${m.best?.analysis.advice ? `<div class="i-advice ${adviceCls(m.best)}" style="margin-top:10px">${esc(m.best.analysis.advice)}</div>` : ""}
+           ${m.product.url ? `<a class="small" href="${esc(m.product.url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:10px;color:var(--brand)">Відкрити в Сільпо ↗</a>` : ""}
            <div id="chart" class="card" style="margin-top:12px"><span class="muted small">Завантажую історію цін…</span></div>`
         : `<div class="card muted">Даних про ціну ще немає — збирач оновить їх найближчим часом.</div>`
     }
@@ -314,11 +322,28 @@ async function renderSettings() {
   view.innerHTML = `<div class="empty"><span class="spin">◐</span></div>`;
   const [{ stores }, { lists, defaultListId }] = await Promise.all([api("/stores"), api("/lists")]);
   const me = state.me;
+  const silpo = me.mode === "mcp" ? await api("/silpo/status").catch(() => null) : null;
   view.innerHTML = `
+    ${
+      silpo
+        ? `<h2>Акаунт Сільпо</h2>
+    <div class="card stack">
+      ${
+        silpo.connected
+          ? `<div>✅ Підключено. Ціни, акції та історія покупок беруться з вашого акаунта.</div>
+             <div class="muted small">Застосунок лише читає дані: кошик, замовлення й бонуси він не змінює.</div>
+             <div class="row"><button class="btn ghost small" data-silpo-connect>Підключити заново</button><button class="btn danger small" data-silpo-disconnect>Відключити</button></div>`
+          : `<div class="muted small">Увійдіть у свій акаунт Сільпо — так застосунок побачить ціни у ваших магазинах та історію покупок. Застосунок лише читає дані, кошик і замовлення він не змінює.</div>
+             <button class="btn" data-silpo-connect>Підключити Сільпо</button>`
+      }
+      ${silpo.error ? `<div class="banner" style="margin:0">⚠️ ${esc(silpo.error)}</div>` : ""}
+    </div>`
+        : ""
+    }
     <h2>Магазини</h2>
     <div class="card stack">
       ${stores.map((s) => `<div class="row"><span>${s.kind === "delivery" ? "🚚" : "🏬"} ${esc(s.name)}</span><button class="btn danger small" data-rmstore="${esc(s.id)}">прибрати</button></div>`).join("") || `<div class="muted">Магазинів ще немає.</div>`}
-      <input class="field" id="storeq" placeholder="Знайти магазин: вулиця, район…">
+      <input class="field" id="storeq" placeholder="${me.mode === "mcp" ? "Інше місто чи вулиця…" : "Знайти магазин: вулиця, район…"}">
       <div id="storeres" class="stack"></div>
     </div>
 
@@ -360,17 +385,25 @@ async function renderSettings() {
     </div>
   `;
   if (me.telegramConfigured) loadTgStatus();
+  const chosen = new Set(stores.map((s) => s.id));
+  const searchStores = async (q) => {
+    try {
+      const { stores: found } = await api(`/stores/search?q=${encodeURIComponent(q)}`);
+      const list = found.filter((s) => !chosen.has(s.id));
+      $("#storeres").innerHTML = list.length
+        ? (!q && me.mode === "mcp" ? `<div class="muted small">Магазини у вашому місті та доставка за адресою з Сільпо:</div>` : "") +
+          list.map((s) => `<button class="result" data-addstore='${esc(JSON.stringify(s))}'><span>${s.kind === "delivery" ? "🚚" : "🏬"} ${esc(s.name)}</span><span>＋</span></button>`).join("")
+        : q ? `<div class="muted small">Нічого не знайдено</div>` : "";
+    } catch (err) {
+      $("#storeres").innerHTML = `<div class="muted small">${esc(err.message)}</div>`;
+    }
+  };
+  // На справжніх даних одразу показуємо магазини поруч (місто з адреси доставки).
+  if (me.mode === "mcp" && silpo?.connected) searchStores("");
   let t;
   $("#storeq").oninput = (e) => {
     clearTimeout(t);
-    t = setTimeout(async () => {
-      try {
-        const { stores: found } = await api(`/stores/search?q=${encodeURIComponent(e.target.value)}`);
-        $("#storeres").innerHTML = found.map((s) => `<button class="result" data-addstore='${esc(JSON.stringify(s))}'><span>${s.kind === "delivery" ? "🚚" : "🏬"} ${esc(s.name)}</span><span>＋</span></button>`).join("");
-      } catch (err) {
-        fail(err);
-      }
-    }, 300);
+    t = setTimeout(() => searchStores(e.target.value.trim()), 350);
   };
 }
 
@@ -463,6 +496,21 @@ document.addEventListener("click", async (e) => {
     } else if (el("[data-tglink]")) {
       const r = await api("/telegram/link", { method: "POST" });
       $("#tglink").innerHTML = `<a class="btn" href="${esc(r.link)}" target="_blank" rel="noopener">Відкрити бота в Telegram</a><div class="muted small" style="margin-top:6px">Натисніть «Start» у боті. Посилання діє 1 годину.</div>`;
+    } else if (el("[data-silpo-connect]")) {
+      el("[data-silpo-connect]").disabled = true;
+      const r = await api("/silpo/connect", { method: "POST" });
+      location.href = r.url;
+    } else if (el("[data-silpo-disconnect]")) {
+      const b = el("[data-silpo-disconnect]");
+      if (b.dataset.confirm !== "1") {
+        b.dataset.confirm = "1";
+        b.textContent = "Точно відключити?";
+        return;
+      }
+      await api("/silpo/disconnect", { method: "POST" });
+      await refreshMe();
+      await renderSettings();
+      toast("Сільпо відключено");
     } else if (el("[data-tgwebhook]")) {
       const r = await api("/telegram/webhook", { method: "POST" });
       toast(`Вебхук зареєстровано: ${r.url}`);
@@ -503,6 +551,7 @@ document.addEventListener("input", (e) => {
 async function refreshMe() {
   state.me = await api("/me");
   $("#status").textContent = state.me.mode === "mock" ? "тестові дані" : state.me.lastCheck ? `ціни: ${localTime(state.me.lastCheck)}` : "";
+  document.body.classList.remove("locked");
 }
 
 async function route() {
@@ -516,8 +565,46 @@ async function route() {
     else if (tab === "settings") await renderSettings();
     else await renderLists();
   } catch (e) {
+    if (e.login) return drawLogin();
     view.innerHTML = `<div class="empty"><div class="big">🔒</div>${esc(e.message)}</div>`;
   }
 }
+
+/* ───────── Вхід за паролем ───────── */
+function drawLogin(error = "") {
+  document.body.classList.add("locked");
+  view.innerHTML = `
+    <form class="login card stack" id="login">
+      <div class="login-mark" aria-hidden="true"><svg viewBox="0 0 64 64"><path class="mark-leaf" d="M34 6 C52 12 58 32 49 47 C43 56 27 57 20 49 C9 36 15 14 34 6z"/><path class="mark-check" d="M22 34 L30 42 L46 21"/></svg></div>
+      <h2 style="margin:0">Вхід у Silpopo</h2>
+      <label class="small muted" for="pw">Пароль</label>
+      <input class="field" id="pw" type="password" autocomplete="current-password" required autofocus>
+      ${error ? `<div class="small" style="color:var(--bad)">${esc(error)}</div>` : ""}
+      <button class="btn" type="submit">Увійти</button>
+      <div class="muted small">Пароль запам'ятається на цьому пристрої на рік.</div>
+    </form>`;
+  $("#login").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const btn = ev.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      await api("/login", { method: "POST", body: { password: $("#pw").value } });
+      state.me = null;
+      await route();
+    } catch (err) {
+      drawLogin(err.message);
+    }
+  };
+}
+
+/* Повернення після входу в Сільпо */
+(() => {
+  const q = new URLSearchParams(location.search);
+  const r = q.get("silpo");
+  if (!r) return;
+  history.replaceState(null, "", location.pathname + location.hash);
+  setTimeout(() => toast(r === "ok" ? "Сільпо підключено ✅ Тепер виберіть магазини" : "Не вдалося підключити Сільпо — деталі в налаштуваннях"), 300);
+})();
+
 window.addEventListener("hashchange", route);
 route();

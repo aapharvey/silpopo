@@ -11,8 +11,9 @@ export interface Env {
   // Cloudflare Access: домен команди (xxx.cloudflareaccess.com) і Application Audience (AUD) tag
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
-  // 'open' — без входу (лише в режимі mock); 'access' — Cloudflare Access
-  AUTH_MODE?: "open" | "access";
+  // 'open' — без входу (лише в режимі mock); 'password' — пароль (секрет APP_PASSWORD); 'access' — Cloudflare Access
+  AUTH_MODE?: "open" | "password" | "access";
+  APP_PASSWORD?: string;
 
   // Секрети
   TELEGRAM_BOT_TOKEN?: string;
@@ -24,6 +25,7 @@ export interface Env {
 /** Те, що ми знаємо про товар у конкретному магазині на цей момент. */
 export interface ProductOffer {
   productId: string;
+  slug?: string | null; // адреса товару в Сільпо (для схожих товарів)
   name: string;
   brand?: string | null;
   category?: string | null;

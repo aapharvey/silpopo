@@ -4,15 +4,15 @@ import type { HistoryPoint } from "./analytics";
 export function upsertProductStmt(db: D1Database, o: ProductOffer): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO products (id, name, brand, category, pack_size, pack_unit, image_url, url, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))
+      `INSERT INTO products (id, name, brand, category, pack_size, pack_unit, image_url, url, slug, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))
        ON CONFLICT(id) DO UPDATE SET
-         name = excluded.name, brand = excluded.brand, category = excluded.category,
+         name = excluded.name, brand = COALESCE(excluded.brand, products.brand), category = COALESCE(excluded.category, products.category),
          pack_size = excluded.pack_size, pack_unit = excluded.pack_unit,
          image_url = COALESCE(excluded.image_url, products.image_url),
-         url = COALESCE(excluded.url, products.url), updated_at = datetime('now')`,
+         url = COALESCE(excluded.url, products.url), slug = COALESCE(excluded.slug, products.slug), updated_at = datetime('now')`,
     )
-    .bind(o.productId, o.name, o.brand ?? null, o.category ?? null, o.packSize ?? null, o.packUnit ?? null, o.imageUrl ?? null, o.url ?? null);
+    .bind(o.productId, o.name, o.brand ?? null, o.category ?? null, o.packSize ?? null, o.packUnit ?? null, o.imageUrl ?? null, o.url ?? null, o.slug ?? null);
 }
 
 /** Один рядок на товар × магазин × день: зберігаємо останнє спостереження і мінімум дня. */

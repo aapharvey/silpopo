@@ -10,7 +10,7 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/telegram/*"]
+    "run_worker_first": ["/api/*", "/telegram/*", "/oauth/*"]
   },
 
   "d1_databases": [
@@ -36,9 +36,9 @@
 
   "vars": {
     // mock — тестові дані без підключення до Сільпо; mcp — офіційний MCP Сільпо.
-    "SILPO_MODE": "mock",
-    // Тимчасово без входу. Перед підключенням до акаунта Сільпо — "access" (у режимі mcp відкритий вхід ігнорується).
-    "AUTH_MODE": "open",
+    "SILPO_MODE": "mcp",
+    // password — вхід за паролем (секрет APP_PASSWORD); open — без входу (працює лише в режимі mock); access — Cloudflare Access.
+    "AUTH_MODE": "password",
     "SILPO_MCP_URL": "https://mcp.silpo.ua/mcp",
     "TIMEZONE": "Europe/Kyiv",
     "DIGEST_HOUR": "8",
@@ -48,5 +48,5 @@
 
   // Задаються в панелі Cloudflare (Worker → Settings → Variables and Secrets), НЕ в цьому файлі:
   //   змінні:  ALLOWED_EMAILS (email через кому), ACCESS_TEAM_DOMAIN, ACCESS_AUD
-  //   секрети: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET
+  //   секрети: APP_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET
 }

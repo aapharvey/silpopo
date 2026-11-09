@@ -199,3 +199,10 @@ h3 { font-size: 15px; margin: 18px 0 8px; color: var(--muted); font-weight: 700;
 .banner { background: var(--warn-bg); color: var(--warn); border-radius: 12px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
 .spin { display: inline-block; animation: sp 1s linear infinite; }
 @keyframes sp { to { transform: rotate(360deg); } }
+
+/* Вхід */
+body.locked .tabs { display: none; }
+.login { max-width: 360px; margin: 40px auto 0; padding: 22px; }
+.login-mark { width: 44px; height: 44px; }
+.login-mark svg { width: 100%; height: 100%; }
+.login-mark .mark-check { stroke: var(--card); }

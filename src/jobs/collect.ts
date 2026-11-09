@@ -1,6 +1,7 @@
 import type { Env, SilpoSource } from "../types";
 import { markCheckedStmt, saveOffers } from "../db";
 import { todayIn } from "../util/time";
+import { SilpoAuthError } from "../silpo/oauth";
 
 /**
  * Збирач цін. Запускається кожні 15 хв і обробляє невелику порцію, щоб вкластися в ліміти
@@ -16,6 +17,11 @@ export async function collect(env: Env, src: SilpoSource): Promise<{ checked: nu
   const day = todayIn(env.TIMEZONE);
   const batch = Math.max(1, Number(env.COLLECT_BATCH) || 12);
 
+  // На справжніх даних без підключеного акаунта Сільпо збирати нічого.
+  if (env.SILPO_MODE === "mcp") {
+    const t = await db.prepare("SELECT 1 FROM oauth_tokens WHERE provider = 'silpo'").first();
+    if (!t) return { checked: 0, searched: 0, similar: 0 };
+  }
   const stores = (await db.prepare("SELECT id FROM stores WHERE active = 1").all<{ id: string }>()).results;
   if (!stores.length) return { checked: 0, searched: 0, similar: 0 };
   const primaryStore = stores[0]!.id;
@@ -105,6 +111,11 @@ export async function collect(env: Env, src: SilpoSource): Promise<{ checked: nu
       checked += ids.length;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      // Вхід у Сільпо закінчився — не позначаємо товари як перевірені, щоб після повторного входу їх зібрати.
+      if (e instanceof SilpoAuthError) {
+        console.error("collect: silpo auth", msg);
+        break;
+      }
       await db.batch(ids.map((id) => markCheckedStmt(db, id, storeId, msg.slice(0, 300))));
       console.error("collect failed", storeId, msg);
     }

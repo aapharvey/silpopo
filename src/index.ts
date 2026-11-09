@@ -5,11 +5,23 @@ import { collect } from "./jobs/collect";
 import { silpoSource } from "./silpo";
 import { getSetting, setSetting } from "./db";
 import { hourIn, todayIn } from "./util/time";
+import { finishAuth, recordAuthError } from "./silpo/oauth";
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/telegram/webhook" && req.method === "POST") return handleWebhook(env, req);
+    // Повернення зі сторінки входу Сільпо. Захищено одноразовим state, збереженим на сервері.
+    if (url.pathname === "/oauth/callback") {
+      try {
+        await finishAuth(env, url);
+        return Response.redirect(`${url.origin}/?silpo=ok#/settings`, 302);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await recordAuthError(env, msg);
+        return Response.redirect(`${url.origin}/?silpo=error#/settings`, 302);
+      }
+    }
     if (url.pathname.startsWith("/api/")) return api.fetch(req, env, ctx);
     return env.ASSETS.fetch(req);
   },
