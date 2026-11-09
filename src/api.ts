@@ -309,8 +309,19 @@ api.post("/atb/refresh", async (c) => c.json(await atbServerRun(c.env, 3)));
 
 /** Дружина підтверджує або відхиляє «той самий товар» в АТБ. */
 api.post("/atb/match", async (c) => {
-  const b = await c.req.json<{ ref: string; atbId: string; action: "confirm" | "reject" }>();
-  if (!b.ref || !b.atbId || !["confirm", "reject"].includes(b.action)) return c.json({ error: "Невірний запит" }, 400);
+  const b = await c.req.json<{ ref: string; atbId: string; action: "confirm" | "reject" | "use" }>();
+  if (!b.ref || !b.atbId || !["confirm", "reject", "use"].includes(b.action)) return c.json({ error: "Невірний запит" }, 400);
+  // «Замінити» на схожий товар з АТБ: тепер саме його купуємо в АТБ замість цієї позиції.
+  if (b.action === "use") {
+    await c.env.DB.batch([
+      c.env.DB.prepare("DELETE FROM atb_matches WHERE ref = ?1 AND kind = 'same' AND atb_id != ?2").bind(b.ref, b.atbId),
+      c.env.DB.prepare(
+        `INSERT INTO atb_matches (ref, atb_id, kind, status) VALUES (?1, ?2, 'same', 'confirmed')
+         ON CONFLICT(ref, atb_id) DO UPDATE SET kind = 'same', status = 'confirmed', updated_at = datetime('now')`,
+      ).bind(b.ref, b.atbId),
+    ]);
+    return c.json({ ok: true });
+  }
   const status = b.action === "confirm" ? "confirmed" : "rejected";
   const stmts = [
     c.env.DB.prepare("UPDATE atb_matches SET status = ?3, updated_at = datetime('now') WHERE ref = ?1 AND atb_id = ?2").bind(b.ref, b.atbId, status),

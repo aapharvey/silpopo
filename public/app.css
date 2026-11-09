@@ -21,16 +21,28 @@
   --bad: #B42318;
   --backdrop: rgba(31, 30, 27, .45);
   --radius: 12px;
+  --head-bg: #1F1E1B;
+  --head-ink: #FAF8F3;
   color-scheme: light;
 }
+/* Темна тема: за системою (якщо не вибрано світлу) або вибрана вручну в налаштуваннях. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #151412; --card: #1E1D1A; --ink: #F2EFE7; --muted: #A8A59B; --line: #2E2C28; --dash: #3D3A35;
     --box: #77746B; --soft: #26241F; --brand: #FF7A33; --rec: #F07A3A; --rec-ink: #1A0D05;
     --save-bg: #173A26; --save: #8FD9AE; --cau-bg: #3A2C12; --cau: #F2C46B; --ok: #3FA36A; --ok-ink: #08160E;
     --bad: #FF8A80; --backdrop: rgba(0, 0, 0, .6);
     color-scheme: dark;
+    --head-bg: #000; --head-ink: #F2EFE7;
   }
+}
+:root[data-theme="dark"] {
+  --paper: #151412; --card: #1E1D1A; --ink: #F2EFE7; --muted: #A8A59B; --line: #2E2C28; --dash: #3D3A35;
+  --box: #77746B; --soft: #26241F; --brand: #FF7A33; --rec: #F07A3A; --rec-ink: #1A0D05;
+  --save-bg: #173A26; --save: #8FD9AE; --cau-bg: #3A2C12; --cau: #F2C46B; --ok: #3FA36A; --ok-ink: #08160E;
+  --bad: #FF8A80; --backdrop: rgba(0, 0, 0, .6);
+  color-scheme: dark;
+  --head-bg: #000; --head-ink: #F2EFE7;
 }
 
 * { box-sizing: border-box; }
@@ -127,6 +139,9 @@ body.shopping .tabs, body.locked .tabs, body.fullscreen .tabs { display: none; }
 .tag.rec { background: var(--rec); color: var(--rec-ink); }
 .tag.save { background: var(--save-bg); color: var(--save); }
 .tag.cau { background: var(--cau-bg); color: var(--cau); }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; background: var(--soft); border-radius: var(--radius); }
+.seg button { min-height: 44px; border: 0; border-radius: 9px; background: none; font-weight: 700; font-size: 14px; color: var(--muted); }
+.seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
 .tag b, .atb-mark { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; font-weight: 700; border-radius: 3px; padding: 0 4px; flex: none; }
 .tag b { background: var(--save); color: var(--save-bg); }
 .atb-mark { display: inline-block; font-size: 11px; border: 1.5px solid var(--ink); padding: 0 5px; }
@@ -181,8 +196,7 @@ body.shopping .tabs, body.locked .tabs, body.fullscreen .tabs { display: none; }
 .opt .best { display: block; font-size: 13px; font-weight: 800; color: var(--save); }
 
 /* ── Режим магазину ── */
-.shop-head { margin: 0 -16px; background: var(--ink); color: var(--paper); padding: 4px 16px 16px; }
-@media (prefers-color-scheme: dark) { .shop-head { background: #000; color: #F2EFE7; } }
+.shop-head { margin: 0 -16px; background: var(--head-bg); color: var(--head-ink); padding: 4px 16px 16px; }
 .shop-head .row a, .shop-head button.link { color: inherit; background: none; border: 0; font-weight: 700; font-size: 14px; min-height: 44px; display: flex; align-items: center; text-decoration: none; padding: 0; }
 .shop-head h1 { font-size: 24px; font-weight: 800; letter-spacing: -.02em; margin: 0; }
 .bar { height: 6px; background: rgba(255, 255, 255, .18); border-radius: 6px; margin-top: 10px; overflow: hidden; }

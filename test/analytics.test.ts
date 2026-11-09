@@ -58,7 +58,27 @@ describe("analyze", () => {
   it("без історії довіряє стікеру акції", () => {
     const a = analyze([], { price: 80, regular_price: 100 }, today);
     expect(a.verdict).toBe("great");
-    expect(a.typical).toBeNull();
+    expect(a.typical).toBe(100); // звичайна — зі старої ціни на цінику
+  });
+
+  it("почали стежити посеред акції — це не фейк", () => {
+    // 2 дні історії, обидва в акції по 75 (на цінику стара ціна 100), сьогодні акція триває
+    const h: HistoryPoint[] = [
+      { day: daysAgo(today, 2), price: 75, regular_price: 100 },
+      { day: daysAgo(today, 1), price: 75, regular_price: 100 },
+    ];
+    const a = analyze(h, { price: 75, regular_price: 100 }, today);
+    expect(a.verdict).not.toBe("fake");
+    expect(a.verdict).toBe("great");
+    expect(a.typical).toBe(100);
+  });
+
+  it("фейк — лише коли самі бачили звичайну ціну", () => {
+    // бачили 5 днів без акції по 100, тепер «акція» з ціною 100 і старою 130
+    const h: HistoryPoint[] = [5, 4, 3, 2, 1].map((d) => ({ day: daysAgo(today, d), price: 100, regular_price: null }));
+    expect(analyze(h, { price: 100, regular_price: 130 }, today).verdict).toBe("fake");
+    // а без таких днів — не звинувачуємо
+    expect(analyze([], { price: 100, regular_price: 130 }, today).verdict).not.toBe("fake");
   });
 
   it("мало історії — цикл не оцінюється", () => {

@@ -75,9 +75,13 @@ export function analyze(
   opts: { stockable?: boolean; minDaysForCycle?: number } = {},
 ): Analysis {
   const prices = history.map((h) => h.price);
-  // "Звичайна" ціна — медіана днів без акції; якщо таких днів мало — медіана всіх днів.
+  // "Звичайна" ціна — медіана днів без акції. Якщо таких днів ще мало (почали стежити посеред акції),
+  // беремо стару ціну з цінника Сільпо: інакше акційна ціна сама стала б «звичайною»,
+  // і справжню акцію ми б несправедливо назвали фейковою.
   const regularDays = history.filter((h) => h.regular_price == null).map((h) => h.price);
-  const typical = regularDays.length >= 3 ? median(regularDays) : median(prices);
+  const enoughRegular = regularDays.length >= 3;
+  const stickers = [...history.map((h) => h.regular_price), current?.regular_price ?? null].filter((x): x is number => x != null && x > 0);
+  const typical = enoughRegular ? median(regularDays) : stickers.length ? median(stickers) : median(prices);
   const min = prices.length ? Math.min(...prices) : null;
   const daysOfHistory = history.length ? daysBetween(history.map((h) => h.day).sort()[0]!, today) + 1 : 0;
 
@@ -86,17 +90,13 @@ export function analyze(
 
   if (current && typical) {
     discountVsTypical = Math.round((1 - current.price / typical) * 100) / 100;
-    const enoughHistory = history.length >= 7;
+    // «Рекорд» і «фейк» — лише коли ми самі бачили звичайну ціну щонайменше 3 дні.
+    const enoughHistory = history.length >= 7 && enoughRegular;
     if (enoughHistory && min != null && current.price <= min && discountVsTypical >= 0.05) verdict = "record";
     else if (discountVsTypical >= 0.15) verdict = "great";
     else if (discountVsTypical >= 0.05) verdict = "good";
-    else if (current.regular_price != null) verdict = "fake";
-    else if (discountVsTypical <= -0.07) verdict = "high";
-  } else if (current?.regular_price) {
-    // історії ще немає — довіряємо стікеру акції
-    const d = 1 - current.price / current.regular_price;
-    discountVsTypical = Math.round(d * 100) / 100;
-    verdict = d >= 0.15 ? "great" : d >= 0.05 ? "good" : "normal";
+    else if (current.regular_price != null && enoughRegular) verdict = "fake";
+    else if (discountVsTypical <= -0.07 && enoughRegular) verdict = "high";
   }
 
   const { cycle, lastStart } = daysOfHistory >= (opts.minDaysForCycle ?? 28) ? promoCycle(history, typical) : { cycle: null, lastStart: null };
@@ -108,7 +108,7 @@ export function analyze(
 
   const inPromoNow = verdict === "record" || verdict === "great" || verdict === "good";
   let advice: string | null = null;
-  const fromSticker = !typical && current?.regular_price != null;
+  const fromSticker = !enoughRegular && current?.regular_price != null;
   if (fromSticker && (verdict === "great" || verdict === "good")) {
     // Історії ще немає — спираємося лише на цінник Сільпо.
     advice = `Акція: звичайна ціна ${money(current!.regular_price!)}`;

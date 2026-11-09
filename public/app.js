@@ -47,6 +47,18 @@ const ls = {
   },
 };
 
+/* Тема: «як у системі», світла або темна (вибирається в налаштуваннях). */
+function applyTheme(t) {
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  const metas = $$('meta[name="theme-color"]');
+  metas.forEach((m) => {
+    const dark = t ? t === "dark" : m.media.includes("dark");
+    m.content = dark ? "#151412" : "#FAF8F3";
+  });
+}
+applyTheme(ls.get("theme", null));
+
 const state = {
   me: ls.get("me", null),
   lists: ls.get("lists", []),
@@ -318,27 +330,26 @@ function deptOf(i) {
   return k < 0 ? { k: 99, name: "Інше" } : { k, name: DEPTS[k][0] };
 }
 
-/* ───────── План покупки: суми по магазинах і розділений кошик Сільпо + АТБ ───────── */
+/* ───────── План покупки: суми по магазинах і розділений кошик Сільпо + АТБ ─────────
+   Сума кожного варіанта — лише те, що там справді можна купити. Чого в магазині немає — показуємо назвою,
+   а такі варіанти йдуть після повних (не підставляємо ціни інших магазинів). */
 function computePlan(items = state.items) {
   const open = items.filter((i) => !i.checked && i.main?.offers.length);
-  const fallback = (i) => (i.main.best?.price ?? 0) * i.quantity;
   const homeId = homeStoreId();
+  const sum = (xs) => xs.reduce((a, x) => a + x.price * x.i.quantity, 0);
   const options = [];
   for (const s of state.stores) {
-    let total = 0, missing = 0, miss = 0;
+    const have = [], missing = [];
     for (const i of open) {
       const o = offerAt(i, s.id);
-      if (o) total += o.price * i.quantity;
-      else {
-        missing++;
-        miss += fallback(i);
-      }
+      if (o) have.push({ i, price: o.price });
+      else missing.push(i);
     }
-    options.push({ key: `one:${s.id}`, kind: "single", store: s, total, missing, rank: total + miss });
+    options.push({ key: `one:${s.id}`, kind: "single", store: s, total: sum(have), missing });
   }
   for (const s of state.stores.filter((x) => !isDelivery(x))) {
-    const silpo = [], atb = [];
-    let missing = 0, miss = 0, saving = 0;
+    const silpo = [], atb = [], missing = [];
+    let saving = 0;
     for (const i of open) {
       const o = offerAt(i, s.id);
       const same = i.atb?.same;
@@ -346,23 +357,31 @@ function computePlan(items = state.items) {
         atb.push({ i, price: same.price, silpo: o?.price ?? null, name: same.name });
         if (o) saving += (o.price - same.price) * i.quantity;
       } else if (o) silpo.push({ i, price: o.price });
-      else {
-        missing++;
-        miss += fallback(i);
-      }
+      else missing.push(i);
     }
-    if (!atb.length || saving < 1) continue;
-    const sum = (xs) => xs.reduce((a, x) => a + x.price * x.i.quantity, 0);
-    const total = sum(silpo) + sum(atb);
-    options.push({ key: `split:${s.id}`, kind: "split", store: s, silpo, atb, total, atbTotal: sum(atb), silpoTotal: sum(silpo), saving, missing, rank: total + miss });
+    // АТБ має сенс, лише якщо там щось дешевше або там є те, чого немає в цьому Сільпо
+    if (!atb.length || (saving < 1 && !atb.some((x) => x.silpo == null))) continue;
+    options.push({ key: `split:${s.id}`, kind: "split", store: s, silpo, atb, total: sum(silpo) + sum(atb), atbTotal: sum(atb), silpoTotal: sum(silpo), saving, missing });
   }
-  options.sort((a, b) => a.rank - b.rank || (a.kind === "single" ? -1 : 1));
+  options.sort((a, b) => a.missing.length - b.missing.length || a.total - b.total || (a.kind === "single" ? -1 : 1));
+  const best = options[0] ?? null;
   const home = options.find((o) => o.key === `one:${homeId}`);
-  for (const o of options) o.vsHome = home ? Math.max(0, home.rank - o.rank) : 0;
-  return { options, best: options[0] ?? null, home, count: open.length };
+  const sameSet = (x, y) => x.missing.length === y.missing.length && x.missing.every((i) => y.missing.includes(i));
+  for (const o of options) {
+    o.vsHome = home && o !== home && sameSet(o, home) ? Math.max(0, home.total - o.total) : 0;
+    o.isBest = !!best && options.length > 1 && sameSet(o, best) && Math.abs(o.total - best.total) < 0.01;
+  }
+  return { options, best, home, count: open.length };
 }
 /** Економія варіанта: для «Сільпо + АТБ» — порівняно з усім у тому ж Сільпо, інакше — порівняно зі «своїм» магазином. */
 const optSaving = (o) => (o.kind === "split" ? o.saving : o.vsHome);
+/** «Без «Сметана…»» — чого в цьому варіанті немає, назвами. */
+function missingText(o) {
+  if (!o.missing.length) return "";
+  const short = (t) => (t.length > 34 ? `${t.slice(0, 32).trim()}…` : t);
+  const names = o.missing.slice(0, 2).map((i) => `«${short(i.title)}»`).join(", ");
+  return o.missing.length === 1 ? `Без ${names} — там цього немає` : `Без ${plural(o.missing.length, "товару", "товарів", "товарів")}: ${names}${o.missing.length > 2 ? "…" : ""} — там їх немає`;
+}
 const optTitle = (o) => (o.kind === "split" ? `${storeLabel(o.store)} + АТБ` : storeLabel(o.store));
 
 /* ───────── Списки ───────── */
@@ -579,6 +598,16 @@ function openItem(id) {
   const atb = i.atb;
   const ref = i.main && !i.query ? i.main.product.id : `q:${i.query}`;
 
+  const cheaperRows = i.alternatives.map(
+    (x) => `<div class="r-row"><span style="flex:1;min-width:0"><span class="nm" style="font-weight:600">${esc(x.product.name)}</span><span class="g-sub">${esc(storeLabel(storeById(x.best.storeId)) || x.best.storeName)}${x.best.unit ? ` · ${money(x.best.unit.value)}/${esc(x.best.unit.unit)}` : ""}</span></span>
+      <span style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="pr">${fmt(x.best.price)}</span><button class="btn line small" data-swap="${esc(x.product.id)}">Замінити</button></span></div>`,
+  );
+  const an = atb?.analog;
+  const anCheaper = an && o && (an.unit && o.unit && an.unit.unit === o.unit.unit ? an.unit.value < o.unit.value * 0.97 : an.price < o.price * 0.97);
+  if (anCheaper && an.id !== atb.same?.id) {
+    cheaperRows.push(`<div class="r-row"><span style="flex:1;min-width:0"><span style="display:flex;align-items:center;gap:6px"><span class="atb-mark">АТБ</span><a class="nm" style="font-weight:600;text-decoration:none" href="${esc(an.url)}" target="_blank" rel="noopener">${esc(an.name)}</a></span><span class="g-sub">в АТБ${an.unit ? ` · ${money(an.unit.value)}/${esc(an.unit.unit)}${o.unit && an.unit.unit === o.unit.unit ? ` замість ${money(o.unit.value)}` : ""}` : ""}</span></span>
+      <span style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="pr">${fmt(an.price)}</span><button class="btn line small" data-atb-match="use" data-ref="${esc(ref)}" data-atb="${esc(an.id)}">Замінити</button></span></div>`);
+  }
   openSheet(
     `
     <div class="it-head">
@@ -615,18 +644,13 @@ function openItem(id) {
               .join("")}
             ${atbRows(atb, ref)}
           </div>`
-        : atb && (atb.same || atb.analog)
+        : atb?.same
           ? `<span class="lbl">АТБ</span><div class="receipt">${atbRows(atb, ref)}</div>`
           : ""
     }
     ${
-      i.alternatives.length
-        ? `<span class="lbl">Дешевші схожі</span><div class="receipt">${i.alternatives
-            .map(
-              (x) => `<div class="r-row"><span style="flex:1;min-width:0"><span class="nm" style="font-weight:600">${esc(x.product.name)}</span><span class="g-sub">${esc(storeLabel(storeById(x.best.storeId)) || x.best.storeName)}${x.best.unit ? ` · ${money(x.best.unit.value)}/${esc(x.best.unit.unit)}` : ""}</span></span>
-                <span style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="pr">${fmt(x.best.price)}</span><button class="btn line small" data-swap="${esc(x.product.id)}">Замінити</button></span></div>`,
-            )
-            .join("")}</div>`
+      cheaperRows.length
+        ? `<span class="lbl">Дешевші схожі</span><div class="receipt">${cheaperRows.join("")}</div>`
         : ""
     }
     <div class="sheet-foot"><button class="btn danger" data-del>Видалити</button><button class="btn" data-close>Готово</button></div>
@@ -658,7 +682,7 @@ function openItem(id) {
       const b = e.target.closest("[data-atb-match]");
       try {
         await api("/atb/match", { method: "POST", body: { ref: b.dataset.ref, atbId: b.dataset.atb, action: b.dataset.atbMatch } });
-        toast(b.dataset.atbMatch === "confirm" ? "Запам'ятала: той самий товар" : "Добре, шукатиму інший");
+        toast({ confirm: "Запам'ятала: той самий товар", reject: "Добре, шукатиму інший", use: "Замінено: купуватимемо це в АТБ" }[b.dataset.atbMatch]);
         closeSheet();
         await loadItems();
         redraw();
@@ -680,19 +704,12 @@ function openItem(id) {
 }
 
 function atbRows(atb, ref) {
-  if (!atb || (!atb.same && !atb.analog)) return "";
-  let html = "";
-  if (atb.same) {
-    const ask =
-      atb.same.status === "confirmed"
-        ? ""
-        : `<span class="row" style="justify-content:flex-start;margin-top:8px"><span class="sub">Це той самий товар?</span><button class="btn line small" data-atb-match="confirm" data-ref="${esc(ref)}" data-atb="${esc(atb.same.id)}">Так</button><button class="btn line small" data-atb-match="reject" data-ref="${esc(ref)}" data-atb="${esc(atb.same.id)}">Ні</button></span>`;
-    html += `<div class="r-row"><span style="flex:1;min-width:0"><span style="display:flex;align-items:center;gap:6px"><span class="atb-mark">АТБ</span><a class="nm" style="font-weight:600;text-decoration:none" href="${esc(atb.same.url)}" target="_blank" rel="noopener">той самий товар</a></span>${atb.same.label ? `<span class="g-sub">${esc(atb.same.label)}</span>` : ""}${ask}</span><span class="pr">${fmt(atb.same.price)}</span></div>`;
-  }
-  if (atb.analog) {
-    html += `<div class="r-row"><span style="flex:1;min-width:0"><span style="display:flex;align-items:center;gap:6px"><span class="atb-mark">АТБ</span><a class="nm" style="font-weight:600;text-decoration:none" href="${esc(atb.analog.url)}" target="_blank" rel="noopener">${esc(atb.analog.name)}</a></span><span class="g-sub">схожий${atb.analog.unit ? ` · ${money(atb.analog.unit.value)}/${esc(atb.analog.unit.unit)}` : ""}</span></span><span class="pr" style="font-weight:500">${fmt(atb.analog.price)}</span></div>`;
-  }
-  return html;
+  if (!atb?.same) return "";
+  const ask =
+    atb.same.status === "confirmed"
+      ? ""
+      : `<span class="row" style="justify-content:flex-start;margin-top:8px"><span class="sub">Це той самий товар?</span><button class="btn line small" data-atb-match="confirm" data-ref="${esc(ref)}" data-atb="${esc(atb.same.id)}">Так</button><button class="btn line small" data-atb-match="reject" data-ref="${esc(ref)}" data-atb="${esc(atb.same.id)}">Ні</button></span>`;
+  return `<div class="r-row"><span style="flex:1;min-width:0"><span style="display:flex;align-items:center;gap:6px"><span class="atb-mark">АТБ</span><a class="nm" style="font-weight:600;text-decoration:none" href="${esc(atb.same.url)}" target="_blank" rel="noopener">${esc(atb.same.name)}</a></span>${atb.same.label ? `<span class="g-sub">${esc(atb.same.label)}</span>` : ""}${ask}</span><span class="pr">${fmt(atb.same.price)}</span></div>`;
 }
 
 /** Видалення з можливістю скасувати: на сервер іде через 5 секунд. */
@@ -945,10 +962,10 @@ function drawAssistant() {
     ? `<div class="hero">
         <div class="lbl">Де купити цей список</div>
         <div class="hero-title">${esc(optTitle(best))}</div>
-        <div class="hero-line"><span class="saving">${optSaving(best) >= 1 ? `Заощадите ${money(optSaving(best))}` : "Найвигідніше для цього списку"}</span><span class="num">${money(best.rank)}</span></div>
-        ${best.missing ? `<div class="sub">Там немає ${plural(best.missing, "товару", "товарів", "товарів")} — враховано за ціною іншого магазину</div>` : ""}
+        <div class="hero-line"><span class="saving">${optSaving(best) >= 1 ? `Заощадите ${money(optSaving(best))}` : "Найвигідніше для цього списку"}</span><span class="num">${money(best.total)}</span></div>
+        ${best.missing.length ? `<div class="sub">${esc(missingText(best))}</div>` : ""}
         ${best.kind === "split" ? `<a class="btn block" style="margin-top:12px" href="#/plan/${encodeURIComponent(best.store.id)}">Подивитися план</a>` : `<button class="btn block" style="margin-top:12px" data-start="${esc(best.key)}">${ICON.cart}Іду в магазин</button>`}
-        ${others.length ? `<div style="margin-top:12px">${others.map((o) => `<div class="alt-opt"><span>${o.kind === "split" ? `<a href="#/plan/${encodeURIComponent(o.store.id)}">${esc(optTitle(o))}</a>` : esc(optTitle(o))}${o.missing ? ` <span class="sub">· немає ${o.missing}</span>` : ""}</span><span class="num">${money(o.rank)}</span></div>`).join("")}</div>` : ""}
+        ${others.length ? `<div style="margin-top:12px">${others.map((o) => `<div class="alt-opt"><span>${o.kind === "split" ? `<a href="#/plan/${encodeURIComponent(o.store.id)}">${esc(optTitle(o))}</a>` : esc(optTitle(o))}${o.missing.length ? `<span class="g-sub">${esc(missingText(o))}</span>` : ""}</span><span class="num">${money(o.total)}</span></div>`).join("")}</div>` : ""}
       </div>`
     : `<div class="empty"><b>Поки нічого порівнювати</b>Додайте товари в список і виберіть магазини в налаштуваннях.</div>`;
   const secs = SECTIONS.filter((s) => data[s.id].length)
@@ -1020,7 +1037,7 @@ function drawPlan(storeId) {
         ${!showAll && opt.silpo.length > 4 ? `<button class="r-more" style="padding:0" data-plan-all>Ще ${goods(opt.silpo.length - 4)}${ICON.down}</button>` : ""}</div>
       <div class="r-total"><span class="lbl">За Сільпо</span><span class="num">${money(opt.silpoTotal)}</span></div>
     </div>
-    ${opt.missing ? `<div class="note cau">${plural(opt.missing, "товару", "товарів", "товарів")} немає ні тут, ні в АТБ.</div>` : ""}
+    ${opt.missing.length ? `<div class="note cau">Ні тут, ні в АТБ немає: ${esc(opt.missing.map((i) => i.title).join(", "))}. Їх у цій сумі немає.</div>` : ""}
     <div class="grand"><span class="lbl" style="color:var(--ink);font-size:14px">Разом</span><span class="num">${money(opt.total)}</span></div>
     <div class="row" style="font-weight:800;color:var(--save);font-size:14px;margin-top:4px"><span>Ви заощадите</span><span class="num">${money(opt.saving)}</span></div>
     <div class="stack" style="margin-top:22px">
@@ -1041,7 +1058,7 @@ function openGoShop() {
   const draw = () =>
     plan.options
       .map(
-        (o) => `<button class="opt ${o.key === sel ? "on" : ""}" data-opt="${esc(o.key)}"><span class="rad"></span><span class="t"><span class="nm">${esc(o.kind === "split" ? `${storeLabel(o.store)}, потім АТБ` : isDelivery(o.store) ? "Замовляю доставку" : `Тільки ${storeLabel(o.store)}`)}</span>${o === plan.best && plan.options.length > 1 ? `<span class="best">Найвигідніше${optSaving(o) >= 1 ? ` · заощадите ${money(optSaving(o))}` : ""}</span>` : ""}${isDelivery(o.store) ? `<span class="g-sub">відмічайте, що вже додали в кошик Сільпо</span>` : ""}${o.missing ? `<span class="g-sub">немає ${plural(o.missing, "товару", "товарів", "товарів")} — враховано за ціною іншого магазину</span>` : ""}</span><span class="pr">${fmt(o.rank)}</span></button>`,
+        (o) => `<button class="opt ${o.key === sel ? "on" : ""}" data-opt="${esc(o.key)}"><span class="rad"></span><span class="t"><span class="nm">${esc(o.kind === "split" ? `${storeLabel(o.store)}, потім АТБ` : isDelivery(o.store) ? "Замовляю доставку" : `Тільки ${storeLabel(o.store)}`)}</span>${o.isBest ? `<span class="best">Найвигідніше${optSaving(o) >= 1 ? ` · заощадите ${money(optSaving(o))}` : ""}</span>` : ""}${isDelivery(o.store) ? `<span class="g-sub">відмічайте, що вже додали в кошик Сільпо</span>` : ""}${o.missing.length ? `<span class="g-sub">${esc(missingText(o))}</span>` : ""}</span><span class="pr">${fmt(o.total)}</span></button>`,
       )
       .join("");
   openSheet(`
@@ -1067,16 +1084,15 @@ function startShop(key) {
   const plan = computePlan();
   const opt = plan.options.find((o) => o.key === key);
   const open = state.items.filter((i) => !i.checked);
-  const priceIn = (i, sid) => offerAt(i, sid)?.price ?? shownOffer(i)?.price ?? null;
   let stages;
   if (opt?.kind === "split") {
     const atbIds = new Set(opt.atb.map((x) => x.i.id));
     stages = [
-      { title: `Сільпо, ${storeLabel(opt.store)}`, kind: "silpo", items: open.filter((i) => !atbIds.has(i.id)).map((i) => ({ id: i.id, price: priceIn(i, opt.store.id), away: !offerAt(i, opt.store.id) })) },
+      { title: `Сільпо, ${storeLabel(opt.store)}`, kind: "silpo", items: open.filter((i) => !atbIds.has(i.id)).map((i) => ({ id: i.id, price: offerAt(i, opt.store.id)?.price ?? null, away: !offerAt(i, opt.store.id) })) },
       { title: "АТБ", kind: "atb", items: opt.atb.map((x) => ({ id: x.i.id, price: x.price })) },
     ];
   } else if (opt) {
-    stages = [{ title: isDelivery(opt.store) ? "Доставка Сільпо" : `Сільпо, ${storeLabel(opt.store)}`, kind: isDelivery(opt.store) ? "delivery" : "silpo", items: open.map((i) => ({ id: i.id, price: priceIn(i, opt.store.id), away: !offerAt(i, opt.store.id) })) }];
+    stages = [{ title: isDelivery(opt.store) ? "Доставка Сільпо" : `Сільпо, ${storeLabel(opt.store)}`, kind: isDelivery(opt.store) ? "delivery" : "silpo", items: open.map((i) => ({ id: i.id, price: offerAt(i, opt.store.id)?.price ?? null, away: !offerAt(i, opt.store.id) })) }];
   } else {
     stages = [{ title: "Покупки", kind: "silpo", items: open.map((i) => ({ id: i.id, price: shownOffer(i)?.price ?? null })) }];
   }
@@ -1123,7 +1139,7 @@ function drawShop() {
   const sumDone = done.reduce((a, x) => a + (x.price ?? 0) * x.i.quantity, 0);
   const groups = new Map();
   for (const x of todo) {
-    const d = deptOf(x.i);
+    const d = x.away ? { k: 100, name: "Тут цього немає — купите деінде" } : deptOf(x.i);
     if (!groups.has(d.k)) groups.set(d.k, { name: d.name, rows: [] });
     groups.get(d.k).rows.push(x);
   }
@@ -1133,7 +1149,7 @@ function drawShop() {
   const prev = sh.stages[sh.stage - 1];
   const row = (x) => `<button class="s-row ${x.i.checked ? "done" : ""}" data-check="${x.i.id}">
       <span class="cb ${x.i.checked ? "on" : ""}">${x.i.checked ? ICON.check : ""}</span>
-      <span class="nm">${esc(x.i.title)}${x.i.quantity !== 1 ? ` <span class="qty">×${x.i.quantity}</span>` : ""}${x.i.query && x.i.main && st.kind !== "atb" ? `<span class="g-sub">${esc(x.i.main.product.name)}</span>` : ""}${x.away && !x.i.checked ? `<span class="g-sub">тут, можливо, немає в наявності</span>` : ""}</span>
+      <span class="nm">${esc(x.i.title)}${x.i.quantity !== 1 ? ` <span class="qty">×${x.i.quantity}</span>` : ""}${x.i.query && x.i.main && st.kind !== "atb" ? `<span class="g-sub">${esc(x.i.main.product.name)}</span>` : ""}</span>
       <span class="pr">${x.price != null ? fmt(x.price * x.i.quantity) : "—"}</span>
     </button>`;
   view.innerHTML = `
@@ -1181,6 +1197,11 @@ async function renderSettings() {
       ${stores.map((s) => `<div class="set-row"><span class="nm" style="font-weight:600">${esc(storeLabel(s))}</span><span><button class="icon-btn danger" data-rmstore="${esc(s.id)}" aria-label="Прибрати ${esc(storeLabel(s))}">${ICON.trash}</button></span></div>`).join("") || `<div class="sub">Магазинів ще немає.</div>`}
       <input class="field" id="storeq" style="margin-top:10px" placeholder="Додати магазин: вулиця чи місто">
       <div id="storeres"></div>
+    </div>
+
+    <span class="lbl" style="display:block;margin:22px 0 8px">Вигляд</span>
+    <div class="seg" role="radiogroup" aria-label="Тема">
+      ${[["", "Як у системі"], ["light", "Світла"], ["dark", "Темна"]].map(([v, l]) => `<button role="radio" aria-checked="${(ls.get("theme", null) ?? "") === v}" class="${(ls.get("theme", null) ?? "") === v ? "on" : ""}" data-theme-set="${v}">${l}</button>`).join("")}
     </div>
 
     <span class="lbl" style="display:block;margin:22px 0 8px">Списки</span>
@@ -1309,6 +1330,16 @@ document.addEventListener("click", async (e) => {
     if (el("[data-check]")) toggleCheck(Number(el("[data-check]").dataset.check));
     else if (el("[data-open]")) openItem(Number(el("[data-open]").dataset.open));
     else if (el("[data-go]")) location.hash = el("[data-go]").dataset.go;
+    else if (el("[data-theme-set]")) {
+      const v = el("[data-theme-set]").dataset.themeSet || null;
+      ls.set("theme", v);
+      applyTheme(v);
+      $$("[data-theme-set]").forEach((b) => {
+        const on = (b.dataset.themeSet || null) === v;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-checked", on);
+      });
+    }
     else if (el("[data-pick-list]")) pickList();
     else if (el("[data-pick-store]")) pickStore();
     else if (el("[data-home]")) {

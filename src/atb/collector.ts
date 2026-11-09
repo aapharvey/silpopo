@@ -238,7 +238,8 @@ export async function saveAtbPage(env: Env, cards: AtbCard[], shopId: string, re
       if (m.analog) {
         stmts.push(
           db
-            .prepare("INSERT OR REPLACE INTO atb_matches (ref, atb_id, kind, status, score) VALUES (?1, ?2, 'analog', 'auto', ?3)")
+            // DO NOTHING: якщо цей товар уже вибрано як «той самий» (кнопка «Замінити»), аналогом його не перезаписуємо
+            .prepare("INSERT INTO atb_matches (ref, atb_id, kind, status, score) VALUES (?1, ?2, 'analog', 'auto', ?3) ON CONFLICT(ref, atb_id) DO NOTHING")
             .bind(ref, m.analog.card.id, m.analog.perUnit),
         );
       }
