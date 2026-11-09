@@ -116,16 +116,29 @@ const MAX_TASKS = 40;
 export const atbSearchUrl = (q: string) => `https://www.atbmarket.com/sch?lang=uk&query=${encodeURIComponent(q)}`;
 
 /** Черга на ніч: по одній сторінці пошуку на кожен некуплений товар зі списків. */
+/**
+ * Черга лише з «несвіжих» позицій: тих, що сьогодні ще не перевірялись в АТБ (нові — першими).
+ * Тому нічний запуск проходить усе, а запуск вдень — тільки щойно додані товари (кілька секунд).
+ */
 async function buildQueue(env: Env): Promise<Task[]> {
+  const day = todayIn(env.TIMEZONE);
   const rows = (
     await env.DB.prepare(
       `SELECT li.product_id, li.query, p.name,
               (SELECT a.name FROM atb_matches m JOIN atb_products a ON a.id = m.atb_id
                 WHERE m.ref = li.product_id AND m.kind = 'same' AND m.status IN ('confirmed', 'suggested')
-                ORDER BY m.status = 'confirmed' DESC LIMIT 1) AS atb_name
-       FROM list_items li LEFT JOIN products p ON p.id = li.product_id
-       WHERE li.checked = 0 ORDER BY li.id DESC`,
-    ).all<{ product_id: string | null; query: string | null; name: string | null; atb_name: string | null }>()
+                ORDER BY m.status = 'confirmed' DESC LIMIT 1) AS atb_name,
+              l.last_ok, l.fail_day, l.fails
+       FROM list_items li
+       LEFT JOIN products p ON p.id = li.product_id
+       LEFT JOIN atb_search_log l ON l.ref = COALESCE(li.product_id, 'q:' || li.query)
+       WHERE li.checked = 0
+         AND (l.last_ok IS NULL OR l.last_ok < ?1)
+         AND (COALESCE(l.fail_day, '') != ?1 OR COALESCE(l.fails, 0) < 3)
+       ORDER BY l.ref IS NOT NULL, li.id DESC`,
+    )
+      .bind(day)
+      .all<{ product_id: string | null; query: string | null; name: string | null; atb_name: string | null }>()
   ).results;
   const byQ = new Map<string, Task>();
   for (const r of rows) {
@@ -144,10 +157,16 @@ async function buildQueue(env: Env): Promise<Task[]> {
 async function nextTask(env: Env): Promise<Task | null> {
   const raw = await getSetting(env.DB, QUEUE);
   let q = raw ? (JSON.parse(raw) as Queue) : null;
-  const stale = !q || (q.pos >= q.tasks.length && Date.now() - Date.parse(q.built) > 6 * 3_600_000);
-  if (stale) {
+  // Черга закінчилась (або її немає) — одразу збираємо нову з того, що сьогодні ще не перевірено.
+  if (!q || q.pos >= q.tasks.length) {
     q = { built: new Date().toISOString(), pos: 0, tasks: await buildQueue(env) };
-    await setSetting(env.DB, RUN, JSON.stringify({ started: q.built, last: q.built, pages: 0, cards: 0, verdict: "unknown" } satisfies RunStats));
+    await setSetting(env.DB, QUEUE, JSON.stringify(q));
+    // Новий прогін, якщо попередній закінчився понад 20 хв тому — інакше продовжуємо лічильники.
+    const runRaw = await getSetting(env.DB, RUN);
+    const prev = runRaw ? (JSON.parse(runRaw) as RunStats) : null;
+    if (!prev || Date.now() - Date.parse(prev.last) > 20 * 60_000) {
+      await setSetting(env.DB, RUN, JSON.stringify({ started: q.built, last: q.built, pages: 0, cards: 0, verdict: "unknown" } satisfies RunStats));
+    }
   }
   if (!q || q.pos >= q.tasks.length) return null;
   const t = q.tasks[q.pos]!;
@@ -261,7 +280,24 @@ export async function handleAtb(env: Env, req: Request, ctx: ExecutionContext): 
     const run: RunStats = runRaw ? JSON.parse(runRaw) : { started: new Date().toISOString(), last: "", pages: 0, cards: 0, verdict: "unknown" };
     run.last = new Date().toISOString();
 
+    const curRaw0 = await getSetting(env.DB, CURRENT);
+    const task0 = curRaw0 ? (JSON.parse(curRaw0) as Task) : null;
+    const day = todayIn(env.TIMEZONE);
     if (probe.verdict === "challenge" || probe.verdict === "blocked" || probe.verdict === "empty") {
+      // Позиції повернуться в чергу (до 3 спроб на день).
+      if (task0?.refs.length) {
+        await env.DB.batch(
+          task0.refs.map((ref) =>
+            env.DB
+              .prepare(
+                `INSERT INTO atb_search_log (ref, q, fail_day, fails, updated_at) VALUES (?1, ?2, ?3, 1, datetime('now'))
+                 ON CONFLICT(ref) DO UPDATE SET fails = CASE WHEN atb_search_log.fail_day = excluded.fail_day THEN atb_search_log.fails + 1 ELSE 1 END,
+                   fail_day = excluded.fail_day, updated_at = datetime('now')`,
+              )
+              .bind(ref, task0.q, day),
+          ),
+        );
+      }
       // Сайт не пустив — не обходимо захист, а повідомляємо (один раз за прогін).
       if (run.verdict !== probe.verdict) ctx.waitUntil(notifyTelegram(env, `АТБ: ${probe.message}`));
       run.verdict = probe.verdict;
@@ -274,6 +310,18 @@ export async function handleAtb(env: Env, req: Request, ctx: ExecutionContext): 
     const task = curRaw ? (JSON.parse(curRaw) as Task) : { q: "", refs: [] };
     const cards = parseAtbCards(html);
     const saved = await saveAtbPage(env, cards, currentShopId(html) ?? "", task.refs);
+    if (task.refs.length) {
+      await env.DB.batch(
+        task.refs.map((ref) =>
+          env.DB
+            .prepare(
+              `INSERT INTO atb_search_log (ref, q, last_ok, fails, updated_at) VALUES (?1, ?2, ?3, 0, datetime('now'))
+               ON CONFLICT(ref) DO UPDATE SET q = excluded.q, last_ok = excluded.last_ok, fails = 0, updated_at = datetime('now')`,
+            )
+            .bind(ref, task.q, day),
+        ),
+      );
+    }
     run.pages++;
     run.cards += saved;
     run.verdict = "ok";
@@ -297,5 +345,15 @@ export async function atbStatus(env: Env) {
     run: run ? (JSON.parse(run) as RunStats) : null,
     queue: queue ? { pos: queue.pos, total: queue.tasks.length, built: queue.built } : null,
     tracked: (await env.DB.prepare("SELECT COUNT(*) AS n FROM list_items WHERE checked = 0").first<{ n: number }>())?.n ?? 0,
+    // скільки позицій сьогодні ще без перевірки в АТБ
+    pending:
+      (
+        await env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM list_items li LEFT JOIN atb_search_log l ON l.ref = COALESCE(li.product_id, 'q:' || li.query)
+           WHERE li.checked = 0 AND (l.last_ok IS NULL OR l.last_ok < ?1)`,
+        )
+          .bind(todayIn(env.TIMEZONE))
+          .first<{ n: number }>()
+      )?.n ?? 0,
   };
 }

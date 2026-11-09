@@ -215,3 +215,7 @@ body.locked .tabs { display: none; }
 .i-atb b { color: #c8102e; }
 .atb-dot { width: 8px; height: 8px; border-radius: 50%; background: #c8102e; flex: none; }
 .atb-label { font-size: 11px; font-weight: 800; color: #c8102e; }
+
+.atb-run { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--ink); background: var(--card); border: 1px solid color-mix(in srgb, #c8102e 30%, transparent); border-radius: 14px; padding: 11px 14px; margin-bottom: 12px; box-shadow: var(--shadow); }
+.atb-run > span:nth-child(2) { flex: 1; }
+.atb-run > span:last-child { color: var(--muted); font-size: 20px; }
