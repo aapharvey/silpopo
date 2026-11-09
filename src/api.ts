@@ -6,7 +6,7 @@ import { getHistory, getSetting, saveOffers, setSetting } from "./db";
 import { buildItems, summarizeDeals } from "./deals";
 import { silpoSource } from "./silpo";
 import { SilpoMcpSource } from "./silpo/mcp";
-import { addItem, defaultListId, primaryStoreId } from "./service";
+import { addItem, defaultListId, primaryStoreId, refreshPrices } from "./service";
 import { collect } from "./jobs/collect";
 import { sendDigest, tg } from "./telegram";
 import { daysAgo, todayIn } from "./util/time";
@@ -121,6 +121,8 @@ api.post("/lists/:id/items", async (c) => {
     title = p.name;
   }
   const id = await addItem(c.env, { listId, productId: b.productId, query: b.query?.trim(), title: title ?? b.query!.trim(), quantity: b.quantity, stockable: b.stockable });
+  // Ціни в усіх вибраних магазинах — одразу, щоб не чекати збирача.
+  if (b.productId) await refreshPrices(c.env, [b.productId]);
   const [item] = await buildItems(c.env, { itemId: id });
   return c.json(item);
 });
@@ -194,6 +196,9 @@ api.post("/suggestions/accept", async (c) => {
   const offers = await silpoSource(c.env).getOffers(b.productIds, store);
   await saveOffers(c.env.DB, offers, todayIn(c.env.TIMEZONE));
   for (const o of offers) await addItem(c.env, { listId: b.listId, productId: o.productId, title: o.name });
+  // ціни в інших магазинах — одразу
+  const others = (await c.env.DB.prepare("SELECT id FROM stores WHERE active = 1 AND id != ?1").bind(store).all<{ id: string }>()).results.map((r) => r.id);
+  if (others.length) await refreshPrices(c.env, offers.map((o) => o.productId), others);
   return c.json({ added: offers.length });
 });
 
@@ -212,7 +217,10 @@ api.post("/stores", async (c) => {
   )
     .bind(b.id, b.name, b.kind ?? "store")
     .run();
-  return c.json({ ok: true });
+  // Одразу збираємо ціни на товари зі списків у новому магазині.
+  const tracked = (await c.env.DB.prepare("SELECT DISTINCT product_id FROM list_items WHERE product_id IS NOT NULL AND checked = 0").all<{ product_id: string }>()).results.map((r) => r.product_id);
+  const saved = await refreshPrices(c.env, tracked, [b.id]);
+  return c.json({ ok: true, prices: saved });
 });
 
 api.delete("/stores/:id", async (c) => {
@@ -269,7 +277,13 @@ api.post("/telegram/test", async (c) => c.json({ result: await sendDigest(c.env,
 
 /* ───── Обслуговування ───── */
 
-api.post("/collect", async (c) => c.json(await collect(c.env, silpoSource(c.env))));
+api.post("/collect", async (c) => {
+  // Ручне оновлення: ціни всіх товарів зі списків у всіх магазинах + звичайний крок збирача.
+  const tracked = (await c.env.DB.prepare("SELECT DISTINCT product_id FROM list_items WHERE product_id IS NOT NULL AND checked = 0").all<{ product_id: string }>()).results.map((r) => r.product_id);
+  const checked = await refreshPrices(c.env, tracked);
+  const r = await collect(c.env, silpoSource(c.env));
+  return c.json({ ...r, checked: checked + r.checked });
+});
 
 /* ───── Підключення акаунта Сільпо ───── */
 

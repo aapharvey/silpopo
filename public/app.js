@@ -211,7 +211,7 @@ function openItem(id) {
         ? `${m.product.name !== i.title ? `<h3>${esc(m.product.name)}</h3>` : `<h3>Ціни по магазинах</h3>`}
            <div class="offers">${m.offers
              .map(
-               (o) => `<div class="offer"><span><b>${esc(o.storeName)}</b><div class="muted small">${o.inStock ? "" : "немає · "}${o.promoUntil ? `акція до ${ddmm(o.promoUntil)} · ` : ""}типова ${money(o.analysis.typical)}</div></span>
+               (o) => `<div class="offer"><span><b>${esc(o.storeName)}</b><div class="muted small">${o.inStock ? "" : "немає · "}${o.promoUntil ? `акція до ${ddmm(o.promoUntil)} · ` : ""}${o.analysis.typical ? `зазвичай ${money(o.analysis.typical)}` : o.regularPrice ? `без акції ${money(o.regularPrice)}` : "звичайна ціна"}</div></span>
                  <span style="text-align:right"><div class="price num">${money(o.price)}</div>${badge(o)}</span></div>`,
              )
              .join("") || `<div class="muted small">Ціни ще збираються.</div>`}</div>

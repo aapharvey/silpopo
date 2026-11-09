@@ -108,7 +108,11 @@ export function analyze(
 
   const inPromoNow = verdict === "record" || verdict === "great" || verdict === "good";
   let advice: string | null = null;
-  if (verdict === "record") advice = opts.stockable ? "Рекордно низька ціна — варто запастися" : "Рекордно низька ціна";
+  const fromSticker = !typical && current?.regular_price != null;
+  if (fromSticker && (verdict === "great" || verdict === "good")) {
+    // Історії ще немає — спираємося лише на цінник Сільпо.
+    advice = `Акція: −${pct(discountVsTypical!)} від звичайної ціни`;
+  } else if (verdict === "record") advice = opts.stockable ? "Рекордно низька ціна — варто запастися" : "Рекордно низька ціна";
   else if (verdict === "great") advice = opts.stockable ? `На ${pct(discountVsTypical!)} дешевше, ніж зазвичай — можна взяти про запас` : `На ${pct(discountVsTypical!)} дешевше, ніж зазвичай`;
   else if (verdict === "good") advice = `Трохи дешевше, ніж зазвичай (−${pct(discountVsTypical!)})`;
   else if (verdict === "fake") advice = "«Акція», але ціна не нижча за звичайну";

@@ -1,5 +1,32 @@
 import type { Env } from "./types";
-import { getSetting } from "./db";
+import { getSetting, saveOffers } from "./db";
+import { silpoSource } from "./silpo";
+import { todayIn } from "./util/time";
+
+/**
+ * Одразу підтягує ціни для товарів у вказаних магазинах (а не чекає збирача).
+ * Один пакетний запит на магазин на кожні 30 товарів; помилки окремого магазину не зупиняють решту.
+ */
+export async function refreshPrices(env: Env, productIds: string[], storeIds?: string[]): Promise<number> {
+  const ids = [...new Set(productIds)].slice(0, 60);
+  if (!ids.length) return 0;
+  const stores = storeIds ?? (await env.DB.prepare("SELECT id FROM stores WHERE active = 1").all<{ id: string }>()).results.map((s) => s.id);
+  const src = silpoSource(env);
+  const day = todayIn(env.TIMEZONE);
+  let saved = 0;
+  for (const storeId of stores) {
+    try {
+      for (let i = 0; i < ids.length; i += 30) {
+        const offers = await src.getOffers(ids.slice(i, i + 30), storeId);
+        await saveOffers(env.DB, offers, day);
+        saved += offers.length;
+      }
+    } catch (e) {
+      console.error("refreshPrices", storeId, e instanceof Error ? e.message : e);
+    }
+  }
+  return saved;
+}
 
 export async function primaryStoreId(env: Env): Promise<string | null> {
   const r = await env.DB.prepare("SELECT id FROM stores WHERE active = 1 ORDER BY kind = 'delivery', created_at LIMIT 1").first<{ id: string }>();
