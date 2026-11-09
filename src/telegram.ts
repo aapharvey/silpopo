@@ -4,6 +4,7 @@ import { silpoSource } from "./silpo";
 import { buildItems, isDeal, summarizeDeals, type ItemView } from "./deals";
 import { addItem, defaultListId, primaryStoreId } from "./service";
 import { todayIn } from "./util/time";
+import { atbServerRun } from "./atb/server";
 
 /* ───────────── Telegram API ───────────── */
 
@@ -131,14 +132,18 @@ export function queryFromSilpoUrl(text: string): string | null {
   }
 }
 
-export async function handleWebhook(env: Env, req: Request): Promise<Response> {
+export async function handleWebhook(env: Env, req: Request, ctx?: ExecutionContext): Promise<Response> {
   if (!env.TELEGRAM_WEBHOOK_SECRET || req.headers.get("x-telegram-bot-api-secret-token") !== env.TELEGRAM_WEBHOOK_SECRET) {
     return new Response("forbidden", { status: 403 });
   }
   const update = (await req.json()) as TgUpdate;
   try {
     if (update.message) await onMessage(env, update.message);
-    else if (update.callback_query) await onCallback(env, update.callback_query);
+    else if (update.callback_query) {
+      await onCallback(env, update.callback_query);
+      // товар додано з Telegram — одразу шукаємо його в АТБ (у фоні)
+      ctx?.waitUntil(atbServerRun(env, 1).catch(() => {}));
+    }
   } catch (e) {
     console.error("telegram handler", e);
     const chat = update.message?.chat.id ?? update.callback_query?.message?.chat.id;

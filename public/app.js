@@ -70,20 +70,6 @@ function adviceCls(o) {
 }
 
 /* ───────── АТБ ───────── */
-const ATB_SHORTCUT_KEY = "silpopo.atbShortcut";
-function atbShortcutName() {
-  try {
-    return localStorage.getItem(ATB_SHORTCUT_KEY) || "ATB prices";
-  } catch {
-    return "ATB prices";
-  }
-}
-/** Посилання, що запускає команду «Команди» на iPhone і повертає назад у Silpopo. */
-function atbRunUrl() {
-  const back = `${location.origin}/?atb=done#/`;
-  return `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(atbShortcutName())}&x-success=${encodeURIComponent(back)}`;
-}
-const isApple = /iPhone|iPad|Macintosh/.test(navigator.userAgent);
 
 /** Порівняння з АТБ: «той самий» — за ціною, аналог — за ціною за кг/л/шт. */
 function atbCompare(i) {
@@ -116,7 +102,7 @@ function atbLine(i) {
 function atbSheet(i) {
   const a = i.atb;
   if (!a || (!a.same && !a.analog)) {
-    return `<h3>АТБ</h3><div class="card muted small">Ще шукаю цей товар в АТБ — дані з'являться після нічної перевірки iPhone.</div>`;
+    return `<h3>АТБ</h3><div class="card muted small">Ще шукаю цей товар в АТБ — ціна з'явиться за хвилину-дві.</div>`;
   }
   const ref = i.main && !i.query ? i.main.product.id : `q:${i.query}`;
   const row = (o, extra = "") => `<div class="offer"><span><a href="${esc(o.url)}" target="_blank" rel="noopener" style="color:inherit"><b>${esc(o.name)}</b></a>
@@ -140,9 +126,8 @@ async function renderLists() {
   const { lists, defaultListId } = await api("/lists");
   state.lists = lists;
   if (!state.listId || !lists.some((l) => l.id === state.listId)) state.listId = defaultListId;
-  const [{ items }, atb] = await Promise.all([api(`/lists/${state.listId}/items`), api("/atb/status").catch(() => null)]);
+  const { items } = await api(`/lists/${state.listId}/items`);
   state.items = items;
-  state.atbPending = atb?.pending ?? 0;
   drawLists();
 }
 
@@ -159,14 +144,8 @@ function drawLists() {
       : state.me && !state.me.stores
         ? `<div class="banner">Спершу виберіть магазини в <a href="#/settings">налаштуваннях</a> — без них ціни не збираються.</div>`
         : "";
-  const atbPending = state.atbPending ?? 0;
-  const atbBanner =
-    atbPending > 0 && isApple
-      ? `<a class="atb-run" href="${esc(atbRunUrl())}"><span class="atb-dot"></span><span><b>Оновити ціни АТБ</b><br><span class="small muted">${atbPending} ${atbPending === 1 ? "товар" : atbPending < 5 ? "товари" : "товарів"} ще без цін АТБ сьогодні · ≈${Math.max(5, atbPending * 3)} с</span></span><span>›</span></a>`
-      : "";
   view.innerHTML = `
     ${banner}
-    ${atbBanner}
     <div class="listbar">
       ${state.lists.map((l) => `<button class="pill ${l.id === state.listId ? "active" : ""}" data-list="${l.id}">${esc(l.emoji ?? "")} ${esc(l.name)}<span class="count">${l.open ?? 0}</span></button>`).join("")}
       <button class="pill" data-newlist>＋ Новий</button>
@@ -253,12 +232,28 @@ async function addToList(body) {
     else state.items.unshift(item);
     const l = state.lists.find((x) => x.id === state.listId);
     if (l && idx < 0) l.open = (l.open ?? 0) + 1;
-    state.atbPending = (state.atbPending ?? 0) + (idx < 0 ? 1 : 0);
     drawLists();
     toast(`Додано: ${item.title}`);
+    // Ціна АТБ збирається на сервері у фоні — підтягуємо її за кілька секунд.
+    if (!item.atb) setTimeout(() => refreshItem(item.id), 6000);
     $("#q")?.focus();
   } catch (e) {
     fail(e);
+  }
+}
+
+/** Тихо оновити одну позицію (наприклад, коли з'явилась ціна АТБ). */
+async function refreshItem(id) {
+  try {
+    const { items } = await api(`/lists/${state.listId}/items`);
+    const fresh = items.find((x) => x.id === id);
+    const idx = state.items.findIndex((x) => x.id === id);
+    if (fresh && idx >= 0 && !(location.hash || "#/").startsWith("#/settings")) {
+      state.items[idx] = fresh;
+      if ($("#sheet").hidden && !(location.hash || "#/").startsWith("#/deals")) drawLists();
+    }
+  } catch {
+    /* не критично */
   }
 }
 
@@ -505,40 +500,21 @@ async function loadAtb() {
   if (!box) return;
   try {
     const s = await api("/atb/status");
-    const next = `${s.origin}/atb/next?key=${s.key}`;
-    const ingest = `${s.origin}/atb/ingest?key=${s.key}`;
+    const m = s.server;
+    const mode = !m
+      ? `<div class="muted small">Спосіб збору ще не визначено — натисніть «Перевірити доступ».</div>`
+      : m.method === "none"
+        ? `<div class="i-advice warn">❌ АТБ зараз не пускає сервер${m.detail ? ` (${esc(m.detail)})` : ""}. Застосунок перевірить знову автоматично.</div>`
+        : `<div class="i-advice good">✅ Автоматично через сервер (${m.method === "fetch" ? "звичайний запит" : "браузер Cloudflare"}). Нові товари перевіряються одразу після додавання.</div>`;
     const r = s.run;
-    const lastTs = r?.last ? Date.parse(r.last) : 0;
-    const stale = lastTs && Date.now() - lastTs > 2 * 86_400_000;
-    const verdict = !r
-      ? `<div class="muted small">Збирач ще не запускався. Адреси нижче — для команди на iPhone.</div>`
-      : r.verdict === "ok"
-        ? `<div class="i-advice ${stale ? "warn" : "good"}">${stale ? "⚠️ Давно не було оновлень — перевірте команду на iPhone. " : "✅ "}Остання перевірка: ${esc(localTime(r.last.slice(0, 19).replace("T", " ")))} · ${r.pages} сторінок · ${r.cards} цін</div>`
-        : `<div class="i-advice warn">${esc(r.message ?? "Проблема з останньою перевіркою")}</div>`;
-    const q = `<div class="muted small">Товарів у списках: ${s.tracked} · сьогодні ще без цін АТБ: ${s.pending}</div>`;
-    const run = isApple
-      ? `<a class="btn" href="${esc(atbRunUrl())}" style="text-align:center;text-decoration:none">Оновити ціни АТБ зараз</a>
-         <label class="small muted" for="atb-name">Назва команди на iPhone</label>
-         <input class="field" id="atb-name" value="${esc(atbShortcutName())}">`
-      : `<div class="muted small">Оновлення запускається з iPhone (команда «${esc(atbShortcutName())}»).</div>`;
-    const sp = `<button class="btn ghost small" data-atb-server>Перевірити доступ до АТБ із сервера</button><div id="atb-server" class="small"></div>`;
+    const last = r?.verdict === "ok" ? `<div class="muted small">Остання сторінка АТБ: ${esc(localTime(r.last.slice(0, 19).replace("T", " ")))} · товарів у списках: ${s.tracked} · сьогодні ще без цін АТБ: ${s.pending}</div>` : "";
     box.innerHTML = `
-      ${verdict}${q}${run}${sp}
-      <div class="small"><b>Адреса 1</b> (крок 1)</div>
-      <div class="row"><code class="url-box" id="atb-next">${esc(next)}</code><button class="btn ghost small" data-copy="atb-next">Копіювати</button></div>
-      <div class="small"><b>Адреса 2</b> (крок 3)</div>
-      <div class="row"><code class="url-box" id="atb-ingest">${esc(ingest)}</code><button class="btn ghost small" data-copy="atb-ingest">Копіювати</button></div>
-      <button class="btn danger small" data-atb-rotate>Створити новий ключ</button>`;
-    const nameInput = $("#atb-name");
-    if (nameInput)
-      nameInput.onchange = (e) => {
-        try {
-          localStorage.setItem(ATB_SHORTCUT_KEY, e.target.value.trim() || "ATB prices");
-        } catch {
-          /* без збереження */
-        }
-        loadAtb();
-      };
+      ${mode}${last}
+      <div class="row" style="justify-content:flex-start">
+        <button class="btn small" data-atb-refresh>Оновити ціни АТБ зараз</button>
+        <button class="btn ghost small" data-atb-server>Перевірити доступ</button>
+      </div>
+      <div id="atb-server" class="small"></div>`;
   } catch (e) {
     box.innerHTML = `<span class="muted small">${esc(e.message)}</span>`;
   }
@@ -646,6 +622,13 @@ document.addEventListener("click", async (e) => {
         sel.addRange(r);
         toast("Виділено — скопіюйте вручну");
       }
+    } else if (el("[data-atb-refresh]")) {
+      const b = el("[data-atb-refresh]");
+      b.disabled = true;
+      b.textContent = "Оновлюю…";
+      const r = await api("/atb/refresh", { method: "POST" });
+      toast(r.method === "none" ? "АТБ зараз не пускає сервер" : r.processed ? `Оновлено ${r.processed} товарів АТБ` : "Усі ціни АТБ на сьогодні вже свіжі");
+      loadAtb();
     } else if (el("[data-atb-server]")) {
       const b = el("[data-atb-server]");
       b.disabled = true;
@@ -662,22 +645,13 @@ document.addEventListener("click", async (e) => {
       }
       b.disabled = false;
       b.textContent = "Перевірити ще раз";
+      loadAtb();
     } else if (el("[data-atb-match]")) {
       const b = el("[data-atb-match]");
       await api("/atb/match", { method: "POST", body: { ref: b.dataset.ref, atbId: b.dataset.atb, action: b.dataset.atbMatch } });
       toast(b.dataset.atbMatch === "confirm" ? "Запам'ятала: той самий товар" : "Добре, шукатиму інший");
       closeSheet();
       await route();
-    } else if (el("[data-atb-rotate]")) {
-      const b = el("[data-atb-rotate]");
-      if (b.dataset.confirm !== "1") {
-        b.dataset.confirm = "1";
-        b.textContent = "Стара команда перестане працювати. Точно?";
-        return;
-      }
-      await api("/atb/key", { method: "POST" });
-      loadAtb();
-      toast("Новий ключ створено — оновіть адреси в команді");
     } else if (el("[data-silpo-connect]")) {
       el("[data-silpo-connect]").disabled = true;
       const r = await api("/silpo/connect", { method: "POST" });
@@ -778,14 +752,6 @@ function drawLogin(error = "") {
     }
   };
 }
-
-/* Повернення з команди АТБ на iPhone */
-(() => {
-  const q = new URLSearchParams(location.search);
-  if (!q.has("atb")) return;
-  history.replaceState(null, "", location.pathname + location.hash);
-  setTimeout(() => toast("Ціни АТБ оновлено ✅"), 300);
-})();
 
 /* Повернення після входу в Сільпо */
 (() => {

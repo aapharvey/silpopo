@@ -4,6 +4,7 @@ import { AUTH_COOKIE, authCookieValue, authenticate, checkPassword } from "./aut
 import { authStatus, disconnect as silpoDisconnect, startAuth } from "./silpo/oauth";
 import { atbKey, atbStatus } from "./atb/collector";
 import { serverProbe } from "./atb/server-probe";
+import { atbServerRun, detectServerMode, getServerMode } from "./atb/server";
 import { getHistory, getSetting, saveOffers, setSetting } from "./db";
 import { buildItems, summarizeDeals } from "./deals";
 import { silpoSource } from "./silpo";
@@ -125,6 +126,8 @@ api.post("/lists/:id/items", async (c) => {
   const id = await addItem(c.env, { listId, productId: b.productId, query: b.query?.trim(), title: title ?? b.query!.trim(), quantity: b.quantity, stockable: b.stockable });
   // Ціни в усіх вибраних магазинах — одразу, щоб не чекати збирача.
   if (b.productId) await refreshPrices(c.env, [b.productId]);
+  // АТБ — у фоні, щоб не затримувати додавання (ціна з'явиться за кілька секунд).
+  c.executionCtx.waitUntil(atbServerRun(c.env, 1).catch((e) => console.error("atb", e)));
   const [item] = await buildItems(c.env, { itemId: id });
   return c.json(item);
 });
@@ -201,6 +204,7 @@ api.post("/suggestions/accept", async (c) => {
   // ціни в інших магазинах — одразу
   const others = (await c.env.DB.prepare("SELECT id FROM stores WHERE active = 1 AND id != ?1").bind(store).all<{ id: string }>()).results.map((r) => r.id);
   if (others.length) await refreshPrices(c.env, offers.map((o) => o.productId), others);
+  c.executionCtx.waitUntil(atbServerRun(c.env, 2).catch((e) => console.error("atb", e)));
   return c.json({ added: offers.length });
 });
 
@@ -289,15 +293,19 @@ api.post("/collect", async (c) => {
 
 /* ───── АТБ (збирач на iPhone) ───── */
 
-api.get("/atb/status", async (c) => c.json({ origin: new URL(c.req.url).origin, ...(await atbStatus(c.env)) }));
+api.get("/atb/status", async (c) => c.json({ ...(await atbStatus(c.env)), server: await getServerMode(c.env) }));
 api.post("/atb/key", async (c) => c.json({ key: await atbKey(c.env, true) }));
 
 /** Чи пускає АТБ сам Cloudflare (запит і вбудований браузер). Результат зберігається для показу в налаштуваннях. */
 api.post("/atb/server-probe", async (c) => {
   const results = await serverProbe(c.env);
   await setSetting(c.env.DB, "atb_server_probe", JSON.stringify({ at: new Date().toISOString(), results }));
+  await detectServerMode(c.env);
   return c.json({ results });
 });
+
+/** Оновити ціни АТБ зараз (кілька сторінок; решту доробить cron). */
+api.post("/atb/refresh", async (c) => c.json(await atbServerRun(c.env, 3)));
 
 /** Дружина підтверджує або відхиляє «той самий товар» в АТБ. */
 api.post("/atb/match", async (c) => {

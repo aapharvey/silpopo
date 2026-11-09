@@ -7,11 +7,12 @@ import { getSetting, setSetting } from "./db";
 import { hourIn, todayIn } from "./util/time";
 import { finishAuth, recordAuthError } from "./silpo/oauth";
 import { handleAtb } from "./atb/collector";
+import { atbServerRun } from "./atb/server";
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
-    if (url.pathname === "/telegram/webhook" && req.method === "POST") return handleWebhook(env, req);
+    if (url.pathname === "/telegram/webhook" && req.method === "POST") return handleWebhook(env, req, ctx);
     // Повернення зі сторінки входу Сільпо. Захищено одноразовим state, збереженим на сервері.
     if (url.pathname === "/oauth/callback") {
       try {
@@ -39,6 +40,8 @@ export default {
       if (r !== "no_chat") await setSetting(env.DB, "digest_last_day", today);
       return;
     }
+    // АТБ: дві «несвіжі» позиції за запуск (щоранку оновлюється все, вдень — лише нове).
+    ctx.waitUntil(atbServerRun(env, 2).catch((e) => console.error("atb cron", e)));
     ctx.waitUntil(
       collect(env, silpoSource(env)).then(
         (r) => console.log("collect", JSON.stringify(r)),

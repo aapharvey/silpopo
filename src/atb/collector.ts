@@ -258,6 +258,90 @@ async function notifyTelegram(env: Env, text: string) {
   }).catch(() => {});
 }
 
+/**
+ * Обробка однієї сторінки АТБ — однакова для iPhone і для сервера:
+ * зберігає ціни, оновлює зіставлення, позначає позиції як перевірені (або невдалі — тоді вони повернуться в чергу).
+ */
+export async function processAtbPage(
+  env: Env,
+  task: Task,
+  html: string,
+  source: "phone" | "server",
+  ctx?: ExecutionContext,
+): Promise<{ ok: boolean; verdict: ProbeResult["verdict"]; saved: number; message: string }> {
+  const target = atbSearchUrl(task.q);
+  const probe = analyzeAtbHtml(html, target);
+  const runRaw = await getSetting(env.DB, RUN);
+  const run: RunStats = runRaw ? JSON.parse(runRaw) : { started: new Date().toISOString(), last: "", pages: 0, cards: 0, verdict: "unknown" };
+  run.last = new Date().toISOString();
+  const day = todayIn(env.TIMEZONE);
+
+  if (probe.verdict === "challenge" || probe.verdict === "blocked" || probe.verdict === "empty") {
+    // Для сервера невдача не рахується проти позиції: її просто збере iPhone.
+    if (source === "phone" && task.refs.length) {
+      await env.DB.batch(
+        task.refs.map((ref) =>
+          env.DB
+            .prepare(
+              `INSERT INTO atb_search_log (ref, q, fail_day, fails, updated_at) VALUES (?1, ?2, ?3, 1, datetime('now'))
+               ON CONFLICT(ref) DO UPDATE SET fails = CASE WHEN atb_search_log.fail_day = excluded.fail_day THEN atb_search_log.fails + 1 ELSE 1 END,
+                 fail_day = excluded.fail_day, updated_at = datetime('now')`,
+            )
+            .bind(ref, task.q, day),
+        ),
+      );
+      // Сайт не пустив — не обходимо захист, а повідомляємо (один раз за прогін).
+      if (run.verdict !== probe.verdict) {
+        const p = notifyTelegram(env, `АТБ: ${probe.message}`);
+        if (ctx) ctx.waitUntil(p);
+        else await p;
+      }
+      run.verdict = probe.verdict;
+      run.message = probe.message;
+      await setSetting(env.DB, RUN, JSON.stringify(run));
+    }
+    return { ok: false, verdict: probe.verdict, saved: 0, message: probe.message };
+  }
+
+  const cards = parseAtbCards(html);
+  const saved = await saveAtbPage(env, cards, currentShopId(html) ?? "", task.refs);
+  if (task.refs.length) {
+    await env.DB.batch(
+      task.refs.map((ref) =>
+        env.DB
+          .prepare(
+            `INSERT INTO atb_search_log (ref, q, last_ok, fails, updated_at) VALUES (?1, ?2, ?3, 0, datetime('now'))
+             ON CONFLICT(ref) DO UPDATE SET q = excluded.q, last_ok = excluded.last_ok, fails = 0, updated_at = datetime('now')`,
+          )
+          .bind(ref, task.q, day),
+      ),
+    );
+  }
+  run.pages++;
+  run.cards += saved;
+  run.verdict = "ok";
+  run.message = undefined;
+  await setSetting(env.DB, RUN, JSON.stringify(run));
+  await setSetting(env.DB, LAST, JSON.stringify({ ...probe, message: `✅ ${task.q || "сторінка"}: ${saved} товарів` }));
+  return { ok: true, verdict: "ok", saved, message: `✓ ${task.q}: ${saved} товарів` };
+}
+
+/** Взяти наступне завдання з черги (спільна черга для iPhone і сервера). */
+export async function takeAtbTask(env: Env): Promise<Task | null> {
+  return nextTask(env);
+}
+
+/** Повернути завдання в чергу (сервер не зміг — збере iPhone). */
+export async function returnAtbTask(env: Env): Promise<void> {
+  const raw = await getSetting(env.DB, QUEUE);
+  if (!raw) return;
+  const q = JSON.parse(raw) as Queue;
+  if (q.pos > 0) q.pos--;
+  await setSetting(env.DB, QUEUE, JSON.stringify(q));
+}
+
+export type { Task as AtbTask };
+
 export async function handleAtb(env: Env, req: Request, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(req.url);
   const text = (s: string, status = 200) => new Response(s, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -274,61 +358,10 @@ export async function handleAtb(env: Env, req: Request, ctx: ExecutionContext): 
 
   if (url.pathname === "/atb/ingest" && req.method === "POST") {
     const html = await req.text();
-    const target = (await getSetting(env.DB, NEXT)) ?? PROBE_URL;
-    const probe = analyzeAtbHtml(html, target);
-    const runRaw = await getSetting(env.DB, RUN);
-    const run: RunStats = runRaw ? JSON.parse(runRaw) : { started: new Date().toISOString(), last: "", pages: 0, cards: 0, verdict: "unknown" };
-    run.last = new Date().toISOString();
-
-    const curRaw0 = await getSetting(env.DB, CURRENT);
-    const task0 = curRaw0 ? (JSON.parse(curRaw0) as Task) : null;
-    const day = todayIn(env.TIMEZONE);
-    if (probe.verdict === "challenge" || probe.verdict === "blocked" || probe.verdict === "empty") {
-      // Позиції повернуться в чергу (до 3 спроб на день).
-      if (task0?.refs.length) {
-        await env.DB.batch(
-          task0.refs.map((ref) =>
-            env.DB
-              .prepare(
-                `INSERT INTO atb_search_log (ref, q, fail_day, fails, updated_at) VALUES (?1, ?2, ?3, 1, datetime('now'))
-                 ON CONFLICT(ref) DO UPDATE SET fails = CASE WHEN atb_search_log.fail_day = excluded.fail_day THEN atb_search_log.fails + 1 ELSE 1 END,
-                   fail_day = excluded.fail_day, updated_at = datetime('now')`,
-              )
-              .bind(ref, task0.q, day),
-          ),
-        );
-      }
-      // Сайт не пустив — не обходимо захист, а повідомляємо (один раз за прогін).
-      if (run.verdict !== probe.verdict) ctx.waitUntil(notifyTelegram(env, `АТБ: ${probe.message}`));
-      run.verdict = probe.verdict;
-      run.message = probe.message;
-      await setSetting(env.DB, RUN, JSON.stringify(run));
-      return text(probe.message);
-    }
-
     const curRaw = await getSetting(env.DB, CURRENT);
     const task = curRaw ? (JSON.parse(curRaw) as Task) : { q: "", refs: [] };
-    const cards = parseAtbCards(html);
-    const saved = await saveAtbPage(env, cards, currentShopId(html) ?? "", task.refs);
-    if (task.refs.length) {
-      await env.DB.batch(
-        task.refs.map((ref) =>
-          env.DB
-            .prepare(
-              `INSERT INTO atb_search_log (ref, q, last_ok, fails, updated_at) VALUES (?1, ?2, ?3, 0, datetime('now'))
-               ON CONFLICT(ref) DO UPDATE SET q = excluded.q, last_ok = excluded.last_ok, fails = 0, updated_at = datetime('now')`,
-            )
-            .bind(ref, task.q, day),
-        ),
-      );
-    }
-    run.pages++;
-    run.cards += saved;
-    run.verdict = "ok";
-    run.message = undefined;
-    await setSetting(env.DB, RUN, JSON.stringify(run));
-    await setSetting(env.DB, LAST, JSON.stringify({ ...probe, message: `✅ ${task.q || "сторінка"}: ${saved} товарів` }));
-    return text(`✓ ${task.q}: ${saved} товарів`);
+    const r = await processAtbPage(env, task, html, "phone", ctx);
+    return text(r.message);
   }
 
   return text("Not found", 404);
