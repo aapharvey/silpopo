@@ -208,3 +208,10 @@ body.locked .tabs { display: none; }
 .login-mark .mark-check { stroke: var(--card); }
 
 .url-box { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; word-break: break-all; background: var(--chip); padding: 8px 10px; border-radius: 10px; flex: 1; min-width: 0; user-select: all; }
+
+/* АТБ */
+.i-atb { font-size: 13px; margin-top: 5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.i-atb.cheaper { color: var(--ink); }
+.i-atb b { color: #c8102e; }
+.atb-dot { width: 8px; height: 8px; border-radius: 50%; background: #c8102e; flex: none; }
+.atb-label { font-size: 11px; font-weight: 800; color: #c8102e; }

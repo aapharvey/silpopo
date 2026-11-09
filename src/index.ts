@@ -6,7 +6,7 @@ import { silpoSource } from "./silpo";
 import { getSetting, setSetting } from "./db";
 import { hourIn, todayIn } from "./util/time";
 import { finishAuth, recordAuthError } from "./silpo/oauth";
-import { handleAtb } from "./atb";
+import { handleAtb } from "./atb/collector";
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

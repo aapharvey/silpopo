@@ -74,7 +74,7 @@ describe("queryFromSilpoUrl", () => {
   });
 });
 
-import { analyzeAtbHtml } from "../src/atb";
+import { analyzeAtbHtml } from "../src/atb/collector";
 describe("analyzeAtbHtml", () => {
   it("розпізнає перевірку Cloudflare", () => {
     const r = analyzeAtbHtml("<html><head><title>Just a moment...</title></head><body>" + "x".repeat(2000) + "<script>window._cf_chl_opt={}</script></body></html>", "u");

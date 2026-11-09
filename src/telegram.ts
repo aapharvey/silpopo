@@ -37,9 +37,27 @@ function dealLine(i: ItemView): string {
   return `${badge} <b>${esc(i.main!.product.name)}</b> — ${money(o.price)}${old && old > o.price ? ` <s>${money(old)}</s>` : ""}${until}${where}`;
 }
 
+/** Позиції, які в АТБ помітно дешевші, ніж у Сільпо. */
+export function atbCheaper(items: ItemView[]) {
+  const out: { item: ItemView; name: string; atb: number; silpo: number; diff: number; same: boolean }[] = [];
+  for (const i of items) {
+    if (i.checked || !i.atb || !i.main?.best) continue;
+    const best = i.main.best;
+    if (i.atb.same) {
+      const diff = 1 - i.atb.same.price / best.price;
+      if (diff >= 0.05) out.push({ item: i, name: i.atb.same.name, atb: i.atb.same.price, silpo: best.price, diff, same: true });
+    } else if (i.atb.analog?.unit && best.unit && i.atb.analog.unit.unit === best.unit.unit) {
+      const diff = 1 - i.atb.analog.unit.value / best.unit.value;
+      if (diff >= 0.15) out.push({ item: i, name: i.atb.analog.name, atb: i.atb.analog.price, silpo: best.price, diff, same: false });
+    }
+  }
+  return out.sort((a, b) => b.diff - a.diff);
+}
+
 export function formatDigest(items: ItemView[], today: string, appUrl?: string): string | null {
   const s = summarizeDeals(items, today);
-  if (!s.deals.length && !s.alternatives.length) return null;
+  const atb = atbCheaper(items);
+  if (!s.deals.length && !s.alternatives.length && !atb.length) return null;
   const parts: string[] = ["☀️ <b>Доброго ранку! Що вигідно сьогодні</b>"];
 
   if (s.deals.length) {
@@ -57,6 +75,16 @@ export function formatDigest(items: ItemView[], today: string, appUrl?: string):
     for (const i of s.alternatives.slice(0, 5)) {
       const a = i.alternatives.find((x) => isDeal(x.best))!;
       parts.push(`🔄 замість «${esc(i.title)}» — ${esc(a.product.name)}, ${money(a.best!.price)} (−${Math.round(a.savingPct * 100)}% за ${a.best!.unit?.unit ?? "од."})`);
+    }
+  }
+  if (atb.length) {
+    parts.push("", `<b>В АТБ дешевше (${atb.length}):</b>`);
+    for (const x of atb.slice(0, 6)) {
+      parts.push(
+        x.same
+          ? `🔴 ${esc(x.item.title)} — ${money(x.atb)} в АТБ (у Сільпо ${money(x.silpo)}, −${Math.round(x.diff * 100)}%)`
+          : `🔴 ${esc(x.item.title)}: аналог ${esc(x.name)} — ${money(x.atb)} (−${Math.round(x.diff * 100)}% за ${x.item.main?.best?.unit?.unit ?? "од."})`,
+      );
     }
   }
   if (s.endingSoon.length) parts.push("", `⏰ Закінчуються сьогодні-завтра: ${s.endingSoon.map((i) => esc(i.title)).join(", ")}`);

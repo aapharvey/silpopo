@@ -69,6 +69,56 @@ function adviceCls(o) {
   return v === "record" ? "hot" : v === "great" || v === "good" ? "good" : v === "fake" ? "warn" : "";
 }
 
+/* ───────── АТБ ───────── */
+/** Порівняння з АТБ: «той самий» — за ціною, аналог — за ціною за кг/л/шт. */
+function atbCompare(i) {
+  const a = i.atb;
+  const s = i.main?.best;
+  if (!a || (!a.same && !a.analog)) return null;
+  const same = a.same;
+  if (same) {
+    const sp = s?.price;
+    const diff = sp ? 1 - same.price / sp : null;
+    return { kind: "same", offer: same, diff };
+  }
+  const an = a.analog;
+  const su = s?.unit?.value;
+  const diff = su && an.unit ? 1 - an.unit.value / su : null;
+  return { kind: "analog", offer: an, diff };
+}
+
+function atbLine(i) {
+  const c = atbCompare(i);
+  if (!c || i.checked) return "";
+  const o = c.offer;
+  const cheaper = c.diff != null && c.diff >= 0.05;
+  const what = c.kind === "same" ? (o.status === "confirmed" ? "АТБ" : "АТБ (той самий?)") : `АТБ, аналог ${esc(o.name)}`;
+  const price = c.kind === "same" ? money(o.price) : `${money(o.unit?.value)}/${esc(o.unit?.unit ?? "од.")}`;
+  const diff = c.diff == null ? "" : cheaper ? ` · <b>дешевше на ${pct(c.diff)}</b>` : c.diff <= -0.05 ? ` · дорожче на ${pct(-c.diff)}` : " · так само";
+  return `<div class="i-atb ${cheaper ? "cheaper" : ""}"><span class="atb-dot" aria-hidden="true"></span>${what}: ${price}${o.label ? ` <span class="atb-label">${esc(o.label)}</span>` : ""}${diff}</div>`;
+}
+
+function atbSheet(i) {
+  const a = i.atb;
+  if (!a || (!a.same && !a.analog)) {
+    return `<h3>АТБ</h3><div class="card muted small">Ще шукаю цей товар в АТБ — дані з'являться після нічної перевірки iPhone.</div>`;
+  }
+  const ref = i.main && !i.query ? i.main.product.id : `q:${i.query}`;
+  const row = (o, extra = "") => `<div class="offer"><span><a href="${esc(o.url)}" target="_blank" rel="noopener" style="color:inherit"><b>${esc(o.name)}</b></a>
+      <div class="muted small">${o.oldPrice ? `без акції ${money(o.oldPrice)} · ` : ""}${o.unit ? `${money(o.unit.value)}/${esc(o.unit.unit)}` : ""}${o.day ? ` · дані ${ddmm(o.day)}` : ""}</div>${extra}</span>
+      <span style="text-align:right"><div class="price num">${money(o.price)}</div>${o.label ? `<span class="badge good">${esc(o.label)}</span>` : ""}</span></div>`;
+  let html = `<h3>АТБ</h3><div class="offers">`;
+  if (a.same) {
+    const ask =
+      a.same.status === "confirmed"
+        ? `<div class="muted small">✓ Підтверджено: той самий товар</div>`
+        : `<div class="row" style="justify-content:flex-start;margin-top:6px"><span class="small">Це той самий товар?</span><button class="btn small" data-atb-match="confirm" data-ref="${esc(ref)}" data-atb="${esc(a.same.id)}">Так</button><button class="btn ghost small" data-atb-match="reject" data-ref="${esc(ref)}" data-atb="${esc(a.same.id)}">Ні</button></div>`;
+    html += row(a.same, ask);
+  }
+  if (a.analog) html += row(a.analog, `<div class="muted small">Найдешевший аналог за ${esc(a.analog.unit?.unit ?? "одиницю")}</div>`);
+  return html + `</div>`;
+}
+
 /* ───────── Списки ───────── */
 async function renderLists() {
   view.innerHTML = `<div class="empty"><span class="spin">◐</span></div>`;
@@ -134,6 +184,7 @@ function itemHtml(i) {
         <div class="i-title">${esc(i.title)}${i.quantity !== 1 ? `<span class="i-qty">× ${i.quantity}</span>` : ""}${i.stockable ? ' <span title="Можна запастися">📦</span>' : ""}</div>
         ${sub.length ? `<div class="i-sub">${sub.join(" · ")}</div>` : !m ? `<div class="i-sub">${i.query ? "шукаю варіанти…" : "ціна ще збирається…"}</div>` : ""}
         ${shown?.analysis.advice && !i.checked ? `<div class="i-advice ${adviceCls(shown)}">${esc(shown.analysis.advice)}</div>` : ""}
+        ${atbLine(i)}
         ${alt && !i.checked ? `<div class="i-alt">🔄 Дешевше: <b>${esc(alt.product.name)}</b> — ${money(alt.best.price)} (−${pct(alt.savingPct)} за ${esc(alt.best.unit?.unit ?? "од.")})</div>` : ""}
       </div>
       <div class="i-price">
@@ -220,9 +271,10 @@ function openItem(id) {
            <div id="chart" class="card" style="margin-top:12px"><span class="muted small">Завантажую історію цін…</span></div>`
         : `<div class="card muted">Даних про ціну ще немає — збирач оновить їх найближчим часом.</div>`
     }
+    ${atbSheet(i)}
     ${
       i.alternatives.length
-        ? `<h3>Дешевші схожі</h3><div class="offers">${i.alternatives
+        ? `<h3>Дешевші схожі в Сільпо</h3><div class="offers">${i.alternatives
             .map(
               (a) => `<div class="offer"><span>${esc(a.product.name)}<div class="muted small">${esc(a.best.storeName)} · ${money(a.best.unit?.value)}/${esc(a.best.unit?.unit ?? "од.")}</div></span>
                 <span style="text-align:right"><div class="price num">${money(a.best.price)}</div><button class="btn small ghost" data-swap="${esc(a.product.id)}">Замінити</button></span></div>`,
@@ -313,8 +365,22 @@ async function renderDeals() {
     <h3>З ваших списків (${d.deals.length})</h3>
     <div class="items">${d.deals.length ? d.deals.map(itemHtml).join("") : `<div class="empty"><div class="big">🤷‍♀️</div>Зараз вигідних акцій на товари зі списків немає.</div>`}</div>
     ${d.alternatives.length ? `<h3>Схожі товари дешевше</h3><div class="items">${d.alternatives.map(itemHtml).join("")}</div>` : ""}
+    <div id="atb-deals"></div>
   `;
   state.items = [...d.deals, ...d.alternatives];
+  // Що в АТБ дешевше, ніж у Сільпо (по всіх списках).
+  try {
+    const { lists } = await api("/lists");
+    const all = (await Promise.all(lists.map((l) => api(`/lists/${l.id}/items`)))).flatMap((r) => r.items);
+    const cheaper = all.filter((i) => !i.checked && (atbCompare(i)?.diff ?? 0) >= 0.05);
+    cheaper.sort((a, b) => atbCompare(b).diff - atbCompare(a).diff);
+    if (cheaper.length) {
+      for (const i of cheaper) if (!state.items.some((x) => x.id === i.id)) state.items.push(i);
+      $("#atb-deals").innerHTML = `<h3>В АТБ дешевше (${cheaper.length})</h3><div class="items">${cheaper.map(itemHtml).join("")}</div>`;
+    }
+  } catch {
+    /* АТБ — необов'язковий блок */
+  }
 }
 
 /* ───────── Налаштування ───────── */
@@ -418,11 +484,17 @@ async function loadAtb() {
     const s = await api("/atb/status");
     const next = `${s.origin}/atb/next?key=${s.key}`;
     const ingest = `${s.origin}/atb/ingest?key=${s.key}`;
-    const verdict = s.last
-      ? `<div class="i-advice ${s.last.verdict === "ok" ? "good" : "warn"}">${esc(s.last.message)}</div><div class="muted small">${esc(localTime(s.last.at.slice(0, 19).replace("T", " ")))}</div>`
-      : `<div class="muted small">Перевірки ще не було. Адреси нижче — для команди на iPhone (див. інструкцію в чаті).</div>`;
+    const r = s.run;
+    const lastTs = r?.last ? Date.parse(r.last) : 0;
+    const stale = lastTs && Date.now() - lastTs > 2 * 86_400_000;
+    const verdict = !r
+      ? `<div class="muted small">Збирач ще не запускався. Адреси нижче — для команди на iPhone.</div>`
+      : r.verdict === "ok"
+        ? `<div class="i-advice ${stale ? "warn" : "good"}">${stale ? "⚠️ Давно не було оновлень — перевірте команду на iPhone. " : "✅ "}Остання перевірка: ${esc(localTime(r.last.slice(0, 19).replace("T", " ")))} · ${r.pages} сторінок · ${r.cards} цін</div>`
+        : `<div class="i-advice warn">${esc(r.message ?? "Проблема з останньою перевіркою")}</div>`;
+    const q = s.queue ? `<div class="muted small">Черга: ${s.queue.pos} з ${s.queue.total} сторінок · товарів у списках: ${s.tracked}</div>` : "";
     box.innerHTML = `
-      ${verdict}
+      ${verdict}${q}
       <div class="small"><b>Адреса 1</b> (крок 1)</div>
       <div class="row"><code class="url-box" id="atb-next">${esc(next)}</code><button class="btn ghost small" data-copy="atb-next">Копіювати</button></div>
       <div class="small"><b>Адреса 2</b> (крок 3)</div>
@@ -535,6 +607,12 @@ document.addEventListener("click", async (e) => {
         sel.addRange(r);
         toast("Виділено — скопіюйте вручну");
       }
+    } else if (el("[data-atb-match]")) {
+      const b = el("[data-atb-match]");
+      await api("/atb/match", { method: "POST", body: { ref: b.dataset.ref, atbId: b.dataset.atb, action: b.dataset.atbMatch } });
+      toast(b.dataset.atbMatch === "confirm" ? "Запам'ятала: той самий товар" : "Добре, шукатиму інший");
+      closeSheet();
+      await route();
     } else if (el("[data-atb-rotate]")) {
       const b = el("[data-atb-rotate]");
       if (b.dataset.confirm !== "1") {

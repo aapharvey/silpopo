@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "./types";
 import { AUTH_COOKIE, authCookieValue, authenticate, checkPassword } from "./auth";
 import { authStatus, disconnect as silpoDisconnect, startAuth } from "./silpo/oauth";
-import { atbKey, atbStatus } from "./atb";
+import { atbKey, atbStatus } from "./atb/collector";
 import { getHistory, getSetting, saveOffers, setSetting } from "./db";
 import { buildItems, summarizeDeals } from "./deals";
 import { silpoSource } from "./silpo";
@@ -290,6 +290,20 @@ api.post("/collect", async (c) => {
 
 api.get("/atb/status", async (c) => c.json({ origin: new URL(c.req.url).origin, ...(await atbStatus(c.env)) }));
 api.post("/atb/key", async (c) => c.json({ key: await atbKey(c.env, true) }));
+
+/** Дружина підтверджує або відхиляє «той самий товар» в АТБ. */
+api.post("/atb/match", async (c) => {
+  const b = await c.req.json<{ ref: string; atbId: string; action: "confirm" | "reject" }>();
+  if (!b.ref || !b.atbId || !["confirm", "reject"].includes(b.action)) return c.json({ error: "Невірний запит" }, 400);
+  const status = b.action === "confirm" ? "confirmed" : "rejected";
+  const stmts = [
+    c.env.DB.prepare("UPDATE atb_matches SET status = ?3, updated_at = datetime('now') WHERE ref = ?1 AND atb_id = ?2").bind(b.ref, b.atbId, status),
+  ];
+  // Підтвердили один — інші пропозиції «той самий» для цієї позиції більше не потрібні.
+  if (status === "confirmed") stmts.push(c.env.DB.prepare("DELETE FROM atb_matches WHERE ref = ?1 AND kind = 'same' AND atb_id != ?2 AND status = 'suggested'").bind(b.ref, b.atbId));
+  await c.env.DB.batch(stmts);
+  return c.json({ ok: true });
+});
 
 /* ───── Підключення акаунта Сільпо ───── */
 

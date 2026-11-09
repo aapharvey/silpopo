@@ -32,7 +32,20 @@ export interface ProductView {
   best: StoreOffer | null;
 }
 
+export interface AtbOffer {
+  id: string;
+  name: string;
+  url: string;
+  price: number;
+  oldPrice: number | null;
+  label: string | null;
+  day: string | null;
+  unit: { value: number; unit: string } | null;
+  status: string; // suggested | confirmed | auto
+}
+
 export interface ItemView {
+  atb: { same: AtbOffer | null; analog: AtbOffer | null } | null;
   id: number;
   listId: number;
   title: string;
@@ -159,6 +172,48 @@ export async function buildItems(env: Env, opts: { listId?: number; itemId?: num
     return v;
   };
 
+  // АТБ: «той самий» і найдешевший аналог для кожної позиції (за останньою відомою ціною).
+  const refs = items.map((i) => i.product_id ?? (i.query ? `q:${i.query}` : "")).filter(Boolean);
+  type AtbRow = {
+    ref: string; kind: string; status: string; id: string; name: string; slug: string;
+    pack_size: number | null; pack_unit: string | null; price: number | null; old_price: number | null; label: string | null; day: string | null;
+  };
+  const atbRows = refs.length
+    ? await chunked(refs, async (chunk, ph) =>
+        (
+          await db
+            .prepare(
+              `SELECT m.ref, m.kind, m.status, a.id, a.name, a.slug, a.pack_size, a.pack_unit, p.price, p.old_price, p.label, p.day
+               FROM atb_matches m JOIN atb_products a ON a.id = m.atb_id
+               LEFT JOIN atb_prices p ON p.product_id = a.id AND p.day = (SELECT MAX(day) FROM atb_prices WHERE product_id = a.id)
+               WHERE m.status != 'rejected' AND m.ref IN (${ph})`,
+            )
+            .bind(...chunk)
+            .all<AtbRow>()
+        ).results,
+      ).catch(() => [] as AtbRow[])
+    : [];
+  const atbOffer = (r: AtbRow | undefined): AtbOffer | null =>
+    r && r.price != null
+      ? {
+          id: r.id,
+          name: r.name,
+          url: `https://www.atbmarket.com/product/${r.slug}`,
+          price: r.price,
+          oldPrice: r.old_price,
+          label: r.label,
+          day: r.day,
+          unit: unitPrice(r.price, r.pack_size, r.pack_unit),
+          status: r.status,
+        }
+      : null;
+  const atbFor = (ref: string) => {
+    const rows = atbRows.filter((r) => r.ref === ref);
+    if (!rows.length) return null;
+    const same = rows.filter((r) => r.kind === "same").sort((a, b) => Number(b.status === "confirmed") - Number(a.status === "confirmed"))[0];
+    return { same: atbOffer(same), analog: atbOffer(rows.find((r) => r.kind === "analog")) };
+  };
+
   const unitOf = (v: ProductView) => v.best?.unit?.value ?? null;
   const unitName = (v: ProductView) => v.best?.unit?.unit ?? null;
 
@@ -193,6 +248,7 @@ export async function buildItems(env: Env, opts: { listId?: number; itemId?: num
       .slice(0, 3);
 
     return {
+      atb: atbFor(it.product_id ?? (it.query ? `q:${it.query}` : "")),
       id: it.id,
       listId: it.list_id,
       title: it.title,
