@@ -6,6 +6,7 @@ import { silpoSource } from "./silpo";
 import { getSetting, setSetting } from "./db";
 import { hourIn, todayIn } from "./util/time";
 import { finishAuth, recordAuthError } from "./silpo/oauth";
+import { handleAtb } from "./atb";
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -22,6 +23,8 @@ export default {
         return Response.redirect(`${url.origin}/?silpo=error#/settings`, 302);
       }
     }
+    // Збирач АТБ на iPhone (захищено окремим ключем, не паролем застосунку).
+    if (url.pathname.startsWith("/atb/")) return handleAtb(env, req, ctx);
     if (url.pathname.startsWith("/api/")) return api.fetch(req, env, ctx);
     return env.ASSETS.fetch(req);
   },

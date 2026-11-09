@@ -73,3 +73,17 @@ describe("queryFromSilpoUrl", () => {
     expect(queryFromSilpoUrl("просто текст")).toBeNull();
   });
 });
+
+import { analyzeAtbHtml } from "../src/atb";
+describe("analyzeAtbHtml", () => {
+  it("розпізнає перевірку Cloudflare", () => {
+    const r = analyzeAtbHtml("<html><head><title>Just a moment...</title></head><body>" + "x".repeat(2000) + "<script>window._cf_chl_opt={}</script></body></html>", "u");
+    expect(r.verdict).toBe("challenge");
+  });
+  it("розпізнає сторінку з товарами", () => {
+    const card = '<a href="/product/moloko-galychyna-25-900g">Молоко</a><span>45,90 грн</span>';
+    const r = analyzeAtbHtml("<html><title>Пошук — АТБ</title>" + card.repeat(10) + "</html>", "u");
+    expect(r.verdict).toBe("ok");
+    expect(r.productLinks).toBe(1);
+  });
+});

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "./types";
 import { AUTH_COOKIE, authCookieValue, authenticate, checkPassword } from "./auth";
 import { authStatus, disconnect as silpoDisconnect, startAuth } from "./silpo/oauth";
+import { atbKey, atbStatus } from "./atb";
 import { getHistory, getSetting, saveOffers, setSetting } from "./db";
 import { buildItems, summarizeDeals } from "./deals";
 import { silpoSource } from "./silpo";
@@ -284,6 +285,11 @@ api.post("/collect", async (c) => {
   const r = await collect(c.env, silpoSource(c.env));
   return c.json({ ...r, checked: checked + r.checked });
 });
+
+/* ───── АТБ (збирач на iPhone) ───── */
+
+api.get("/atb/status", async (c) => c.json({ origin: new URL(c.req.url).origin, ...(await atbStatus(c.env)) }));
+api.post("/atb/key", async (c) => c.json({ key: await atbKey(c.env, true) }));
 
 /* ───── Підключення акаунта Сільпо ───── */
 

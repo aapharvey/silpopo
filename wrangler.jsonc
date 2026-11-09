@@ -10,7 +10,7 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/telegram/*", "/oauth/*"]
+    "run_worker_first": ["/api/*", "/telegram/*", "/oauth/*", "/atb/*"]
   },
 
   "d1_databases": [

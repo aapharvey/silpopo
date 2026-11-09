@@ -375,6 +375,9 @@ async function renderSettings() {
       <div id="tgstatus" class="small muted"></div>
     </div>
 
+    <h2>АТБ <span class="muted small">· перевірка</span></h2>
+    <div class="card stack" id="atb"><span class="muted small">Завантаження…</span></div>
+
     <h2>Обслуговування</h2>
     <div class="card stack small">
       <div class="row"><span>Джерело даних</span><b>${me.mode === "mock" ? "тестові дані" : "MCP Сільпо"}</b></div>
@@ -385,6 +388,7 @@ async function renderSettings() {
     </div>
   `;
   if (me.telegramConfigured) loadTgStatus();
+  loadAtb();
   const chosen = new Set(stores.map((s) => s.id));
   const searchStores = async (q) => {
     try {
@@ -405,6 +409,28 @@ async function renderSettings() {
     clearTimeout(t);
     t = setTimeout(() => searchStores(e.target.value.trim()), 350);
   };
+}
+
+async function loadAtb() {
+  const box = $("#atb");
+  if (!box) return;
+  try {
+    const s = await api("/atb/status");
+    const next = `${s.origin}/atb/next?key=${s.key}`;
+    const ingest = `${s.origin}/atb/ingest?key=${s.key}`;
+    const verdict = s.last
+      ? `<div class="i-advice ${s.last.verdict === "ok" ? "good" : "warn"}">${esc(s.last.message)}</div><div class="muted small">${esc(localTime(s.last.at.slice(0, 19).replace("T", " ")))}</div>`
+      : `<div class="muted small">Перевірки ще не було. Адреси нижче — для команди на iPhone (див. інструкцію в чаті).</div>`;
+    box.innerHTML = `
+      ${verdict}
+      <div class="small"><b>Адреса 1</b> (крок 1)</div>
+      <div class="row"><code class="url-box" id="atb-next">${esc(next)}</code><button class="btn ghost small" data-copy="atb-next">Копіювати</button></div>
+      <div class="small"><b>Адреса 2</b> (крок 3)</div>
+      <div class="row"><code class="url-box" id="atb-ingest">${esc(ingest)}</code><button class="btn ghost small" data-copy="atb-ingest">Копіювати</button></div>
+      <button class="btn danger small" data-atb-rotate>Створити новий ключ</button>`;
+  } catch (e) {
+    box.innerHTML = `<span class="muted small">${esc(e.message)}</span>`;
+  }
 }
 
 async function loadTgStatus() {
@@ -496,6 +522,29 @@ document.addEventListener("click", async (e) => {
     } else if (el("[data-tglink]")) {
       const r = await api("/telegram/link", { method: "POST" });
       $("#tglink").innerHTML = `<a class="btn" href="${esc(r.link)}" target="_blank" rel="noopener">Відкрити бота в Telegram</a><div class="muted small" style="margin-top:6px">Натисніть «Start» у боті. Посилання діє 1 годину.</div>`;
+    } else if (el("[data-copy]")) {
+      const src = document.getElementById(el("[data-copy]").dataset.copy);
+      try {
+        await navigator.clipboard.writeText(src.textContent);
+        toast("Скопійовано");
+      } catch {
+        const r = document.createRange();
+        r.selectNodeContents(src);
+        const sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+        toast("Виділено — скопіюйте вручну");
+      }
+    } else if (el("[data-atb-rotate]")) {
+      const b = el("[data-atb-rotate]");
+      if (b.dataset.confirm !== "1") {
+        b.dataset.confirm = "1";
+        b.textContent = "Стара команда перестане працювати. Точно?";
+        return;
+      }
+      await api("/atb/key", { method: "POST" });
+      loadAtb();
+      toast("Новий ключ створено — оновіть адреси в команді");
     } else if (el("[data-silpo-connect]")) {
       el("[data-silpo-connect]").disabled = true;
       const r = await api("/silpo/connect", { method: "POST" });
