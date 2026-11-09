@@ -38,6 +38,13 @@ function dealLine(i: ItemView): string {
   return `${badge} <b>${esc(i.main!.product.name)}</b> — ${money(o.price)}${old && old > o.price ? ` <s>${money(old)}</s>` : ""}${until}${where}`;
 }
 
+/** «(45,90 ₴/кг замість 62,00)» — порівняння аналога АТБ за ціною за одиницю, без відсотків. */
+function analogPer(i: ItemView): string {
+  const a = i.atb?.analog?.unit;
+  const s = i.main?.best?.unit;
+  return a && s && a.unit === s.unit ? ` (${money(a.value)}/${a.unit} замість ${money(s.value)})` : "";
+}
+
 /** Позиції, які в АТБ помітно дешевші, ніж у Сільпо. */
 export function atbCheaper(items: ItemView[]) {
   const out: { item: ItemView; name: string; atb: number; silpo: number; diff: number; same: boolean }[] = [];
@@ -75,7 +82,10 @@ export function formatDigest(items: ItemView[], today: string, appUrl?: string):
     parts.push("", "<b>Схожі товари дешевше:</b>");
     for (const i of s.alternatives.slice(0, 5)) {
       const a = i.alternatives.find((x) => isDeal(x.best))!;
-      parts.push(`🔄 замість «${esc(i.title)}» — ${esc(a.product.name)}, ${money(a.best!.price)} (−${Math.round(a.savingPct * 100)}% за ${a.best!.unit?.unit ?? "од."})`);
+      const u = a.best!.unit;
+      const mu = i.main?.best?.unit;
+      const per = u && mu && u.unit === mu.unit ? ` (${money(u.value)}/${u.unit} замість ${money(mu.value)})` : "";
+      parts.push(`🔄 замість «${esc(i.title)}» — ${esc(a.product.name)}, ${money(a.best!.price)}${per}`);
     }
   }
   if (atb.length) {
@@ -83,8 +93,8 @@ export function formatDigest(items: ItemView[], today: string, appUrl?: string):
     for (const x of atb.slice(0, 6)) {
       parts.push(
         x.same
-          ? `🔴 ${esc(x.item.title)} — ${money(x.atb)} в АТБ (у Сільпо ${money(x.silpo)}, −${Math.round(x.diff * 100)}%)`
-          : `🔴 ${esc(x.item.title)}: аналог ${esc(x.name)} — ${money(x.atb)} (−${Math.round(x.diff * 100)}% за ${x.item.main?.best?.unit?.unit ?? "од."})`,
+          ? `🔴 ${esc(x.item.title)} — ${money(x.atb)} в АТБ (у Сільпо ${money(x.silpo)})`
+          : `🔴 ${esc(x.item.title)}: аналог ${esc(x.name)} — ${money(x.atb)}${analogPer(x.item)}`,
       );
     }
   }

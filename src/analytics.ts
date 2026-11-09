@@ -66,7 +66,7 @@ export function promoCycle(history: HistoryPoint[], typical: number | null): { c
   return { cycle: cycle != null ? Math.round(cycle) : null, lastStart: starts.at(-1)! };
 }
 
-const pct = (x: number) => `${Math.round(x * 100)}%`;
+const money = (n: number) => `${n.toFixed(2).replace(".", ",")} ₴`;
 
 export function analyze(
   history: HistoryPoint[],
@@ -111,10 +111,10 @@ export function analyze(
   const fromSticker = !typical && current?.regular_price != null;
   if (fromSticker && (verdict === "great" || verdict === "good")) {
     // Історії ще немає — спираємося лише на цінник Сільпо.
-    advice = `Акція: −${pct(discountVsTypical!)} від звичайної ціни`;
+    advice = `Акція: звичайна ціна ${money(current!.regular_price!)}`;
   } else if (verdict === "record") advice = opts.stockable ? "Рекордно низька ціна — варто запастися" : "Рекордно низька ціна";
-  else if (verdict === "great") advice = opts.stockable ? `На ${pct(discountVsTypical!)} дешевше, ніж зазвичай — можна взяти про запас` : `На ${pct(discountVsTypical!)} дешевше, ніж зазвичай`;
-  else if (verdict === "good") advice = `Трохи дешевше, ніж зазвичай (−${pct(discountVsTypical!)})`;
+  else if (verdict === "great") advice = opts.stockable ? `Дешевше, ніж зазвичай (звичайна ціна ${money(typical!)}) — можна взяти про запас` : `Дешевше, ніж зазвичай (звичайна ціна ${money(typical!)})`;
+  else if (verdict === "good") advice = `Трохи дешевше, ніж зазвичай (звичайна ціна ${money(typical!)})`;
   else if (verdict === "fake") advice = "«Акція», але ціна не нижча за звичайну";
   // Радимо почекати, лише коли акція дуже близько (до 4 днів), інакше порада стає шумом.
   if (!inPromoNow && nextPromoInDays != null && nextPromoInDays <= 4) {

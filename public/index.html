@@ -1,11 +1,12 @@
 <!doctype html>
-<html lang="uk" data-theme="light">
+<html lang="uk">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
-  <meta name="color-scheme" content="light">
-  <title>Silpopo · списки й акції</title>
+  <meta name="theme-color" content="#FAF8F3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#151412" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <title>Silpopo · списки й ціни</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
@@ -20,27 +21,28 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header class="top">
-    <a class="brand" href="#/" aria-label="Silpopo">
-      <span class="wm" aria-hidden="true">S<span class="wm-i">ı<svg class="wm-leaf" viewBox="0 0 20 20"><path d="M10 1 C17 4 19 11 15 16 C12 19 7 19 5 16 C1 11 3 4 10 1z"/></svg></span>lpopo</span>
-      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><path class="mark-leaf" d="M34 6 C52 12 58 32 49 47 C43 56 27 57 20 49 C9 36 15 14 34 6z"/><path class="mark-check" d="M22 34 L30 42 L46 21"/></svg>
-    </a>
-    <div id="status" class="status"></div>
-  </header>
-
   <main id="view" aria-live="polite"></main>
 
   <nav class="tabs" aria-label="Розділи">
-    <a href="#/" data-tab="lists"><span>🧺</span>Списки</a>
-    <a href="#/deals" data-tab="deals"><span>🏷️</span>Вигідно</a>
-    <a href="#/settings" data-tab="settings"><span>⚙️</span>Налаштування</a>
+    <a href="#/" data-tab="lists">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>Список
+    </a>
+    <a href="#/assistant" data-tab="assistant">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/><path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>Асистент<i class="dot" id="asst-dot" hidden></i>
+    </a>
+    <a href="#/settings" data-tab="settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Налаштування
+    </a>
   </nav>
 
   <div id="sheet" class="sheet" hidden>
     <div class="sheet-backdrop" data-close></div>
-    <div class="sheet-body" role="dialog" aria-modal="true"><div id="sheet-content"></div></div>
+    <div class="sheet-body" role="dialog" aria-modal="true">
+      <div class="grab" aria-hidden="true"><span></span></div>
+      <div id="sheet-content"></div>
+    </div>
   </div>
-  <div id="toast" class="toast" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
 
   <script src="/app.js" type="module"></script>
 </body>

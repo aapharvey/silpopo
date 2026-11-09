@@ -1,10 +1,10 @@
 {
-  "name": "Silpopo — списки й акції",
+  "name": "Silpopo — списки й ціни",
   "short_name": "Silpopo",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f2faf6",
-  "theme_color": "#17a673",
+  "background_color": "#FAF8F3",
+  "theme_color": "#FAF8F3",
   "lang": "uk",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
