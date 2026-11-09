@@ -521,8 +521,9 @@ async function loadAtb() {
          <label class="small muted" for="atb-name">Назва команди на iPhone</label>
          <input class="field" id="atb-name" value="${esc(atbShortcutName())}">`
       : `<div class="muted small">Оновлення запускається з iPhone (команда «${esc(atbShortcutName())}»).</div>`;
+    const sp = `<button class="btn ghost small" data-atb-server>Перевірити доступ до АТБ із сервера</button><div id="atb-server" class="small"></div>`;
     box.innerHTML = `
-      ${verdict}${q}${run}
+      ${verdict}${q}${run}${sp}
       <div class="small"><b>Адреса 1</b> (крок 1)</div>
       <div class="row"><code class="url-box" id="atb-next">${esc(next)}</code><button class="btn ghost small" data-copy="atb-next">Копіювати</button></div>
       <div class="small"><b>Адреса 2</b> (крок 3)</div>
@@ -645,6 +646,22 @@ document.addEventListener("click", async (e) => {
         sel.addRange(r);
         toast("Виділено — скопіюйте вручну");
       }
+    } else if (el("[data-atb-server]")) {
+      const b = el("[data-atb-server]");
+      b.disabled = true;
+      b.textContent = "Перевіряю… (до 40 с)";
+      const out = $("#atb-server");
+      try {
+        const { results } = await api("/atb/server-probe", { method: "POST" });
+        const label = { fetch: "Звичайний запит", browser: "Браузер Cloudflare" };
+        out.innerHTML = results
+          .map((r) => `<div class="i-advice ${r.ok ? "good" : "warn"}">${r.ok ? "✅" : "❌"} ${label[r.method]}: ${r.ok ? `пускає, ${r.cards} товарів` : esc(r.verdict)}${r.status ? ` · HTTP ${r.status}` : ""} · ${r.ms} мс${r.note ? ` · ${esc(r.note)}` : ""}</div>`)
+          .join("");
+      } catch (err) {
+        out.innerHTML = `<div class="i-advice warn">${esc(err.message)}</div>`;
+      }
+      b.disabled = false;
+      b.textContent = "Перевірити ще раз";
     } else if (el("[data-atb-match]")) {
       const b = el("[data-atb-match]");
       await api("/atb/match", { method: "POST", body: { ref: b.dataset.ref, atbId: b.dataset.atb, action: b.dataset.atbMatch } });

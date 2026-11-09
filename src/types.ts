@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  BROWSER?: Fetcher;
 
   SILPO_MODE: "mock" | "mcp";
   SILPO_MCP_URL: string;

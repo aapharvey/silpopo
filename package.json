@@ -17,6 +17,7 @@
     "url": "git+https://github.com/aapharvey/silpopo.git"
   },
   "dependencies": {
+    "@cloudflare/puppeteer": "1.4.0",
     "hono": "^4.13.17"
   },
   "devDependencies": {

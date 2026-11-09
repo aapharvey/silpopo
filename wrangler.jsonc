@@ -13,6 +13,9 @@
     "run_worker_first": ["/api/*", "/telegram/*", "/oauth/*", "/atb/*"]
   },
 
+  // Вбудований браузер Cloudflare (Browser Run): на безкоштовному тарифі 10 хв на день.
+  "browser": { "binding": "BROWSER" },
+
   "d1_databases": [
     {
       "binding": "DB",

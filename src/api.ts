@@ -3,6 +3,7 @@ import type { Env } from "./types";
 import { AUTH_COOKIE, authCookieValue, authenticate, checkPassword } from "./auth";
 import { authStatus, disconnect as silpoDisconnect, startAuth } from "./silpo/oauth";
 import { atbKey, atbStatus } from "./atb/collector";
+import { serverProbe } from "./atb/server-probe";
 import { getHistory, getSetting, saveOffers, setSetting } from "./db";
 import { buildItems, summarizeDeals } from "./deals";
 import { silpoSource } from "./silpo";
@@ -290,6 +291,13 @@ api.post("/collect", async (c) => {
 
 api.get("/atb/status", async (c) => c.json({ origin: new URL(c.req.url).origin, ...(await atbStatus(c.env)) }));
 api.post("/atb/key", async (c) => c.json({ key: await atbKey(c.env, true) }));
+
+/** Чи пускає АТБ сам Cloudflare (запит і вбудований браузер). Результат зберігається для показу в налаштуваннях. */
+api.post("/atb/server-probe", async (c) => {
+  const results = await serverProbe(c.env);
+  await setSetting(c.env.DB, "atb_server_probe", JSON.stringify({ at: new Date().toISOString(), results }));
+  return c.json({ results });
+});
 
 /** Дружина підтверджує або відхиляє «той самий товар» в АТБ. */
 api.post("/atb/match", async (c) => {
