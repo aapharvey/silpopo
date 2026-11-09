@@ -43,7 +43,8 @@ describe("зіставлення", () => {
   });
   it("безлактозне чи згущене не плутаємо зі звичайним молоком", () => {
     const m = matchCards({ name: "Молоко «Галичина» безлактозне 2,5%", packSize: 0.87, packUnit: "kg" }, cards);
-    expect(m.analog?.card.name ?? "").toMatch(/безлактозне/);
+    expect(m.same?.card.name ?? "").toMatch(/безлактозне/);
+    expect(m.analog?.card.name ?? "").not.toMatch(/Молокія 2,5%$/);
     const plain = matchCards({ name: "Молоко «Ічня» 2,5%", packSize: 0.9, packUnit: "kg" }, cards);
     expect(plain.analog?.card.name ?? "").not.toMatch(/згущ/);
   });
