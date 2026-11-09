@@ -459,7 +459,7 @@ async function renderSettings() {
       <div id="tgstatus" class="small muted"></div>
     </div>
 
-    <h2>АТБ <span class="muted small">· перевірка</span></h2>
+    <h2>АТБ</h2>
     <div class="card stack" id="atb"><span class="muted small">Завантаження…</span></div>
 
     <h2>Обслуговування</h2>
